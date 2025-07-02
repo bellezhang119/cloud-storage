@@ -6,10 +6,14 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/bellezhang119/cloud-storage/internal/config"
+	"github.com/bellezhang119/cloud-storage/internal/server"
 	"github.com/joho/godotenv"
 )
 
 func main() {
+	config.ConnectDB()
+
 	godotenv.Load(".env")
 
 	portString := os.Getenv("PORT")
@@ -20,8 +24,11 @@ func main() {
 
 	fmt.Println("Port:", portString)
 
-	router := http.NewServeMux()
+	router := server.NewRouter()
 
-	router.HandleFunc("GET /ready", handlerReadiness)
-	router.HandleFunc("GET /err", handleErr)
+	err := http.ListenAndServe(portString, router)
+
+	if err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
 }
