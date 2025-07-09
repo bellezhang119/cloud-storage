@@ -54,3 +54,54 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	)
 	return i, err
 }
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at FROM users WHERE email = $1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.IsVerified,
+		&i.VerificationToken,
+		&i.VerificationTokenExpiry,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByVerificationToken = `-- name: GetUserByVerificationToken :one
+SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at FROM users WHERE verification_token = $1
+`
+
+func (q *Queries) GetUserByVerificationToken(ctx context.Context, verificationToken sql.NullString) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByVerificationToken, verificationToken)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.IsVerified,
+		&i.VerificationToken,
+		&i.VerificationTokenExpiry,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markUserAsVerified = `-- name: MarkUserAsVerified :exec
+UPDATE users
+SET is_verified = TRUE, verification_token = NULL, verification_token_expiry = NULL
+WHERE id = $1
+`
+
+func (q *Queries) MarkUserAsVerified(ctx context.Context, id int32) error {
+	_, err := q.db.ExecContext(ctx, markUserAsVerified, id)
+	return err
+}

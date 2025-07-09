@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+type RefreshToken struct {
+	TokenHash string
+	UserID    int32
+	ExpiresAt time.Time
+	CreatedAt time.Time
+	Revoked   bool
+}
+
 type User struct {
 	ID                      int32
 	Email                   string
