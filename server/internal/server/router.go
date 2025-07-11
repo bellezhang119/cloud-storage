@@ -1,12 +1,23 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
 
-func NewRouter() http.Handler {
-	router := http.NewServeMux()
+	"github.com/bellezhang119/cloud-storage/internal/auth"
+)
 
-	router.HandleFunc("GET /ready", HandlerReadiness)
-	router.HandleFunc("GET /err", HandleErr)
+func NewRouter(authService *auth.Service) *http.ServeMux {
+	mux := http.NewServeMux()
 
-	return router
+	// Auth routes
+	mux.HandleFunc("POST /auth/register", auth.RegisterHandler(authService))
+	mux.HandleFunc("GET /auth/verify", auth.VerifyEmailHandler(authService))
+
+	// Health checks
+	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Ready"))
+	})
+	mux.HandleFunc("GET /err", HandleErr)
+
+	return mux
 }

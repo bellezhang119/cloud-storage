@@ -11,7 +11,7 @@ import (
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 var expireTime time.Duration = 30
 
-func GenerateTokens(userID int32, email string) (accessToken string, refreshToken string, err error) {
+func GenerateJTWTokens(userID int32, email string) (accessToken string, refreshToken string, err error) {
 	accessClaims := jwt.MapClaims{
 		"user_id": userID,
 		"email":   email,
