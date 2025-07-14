@@ -1,6 +1,8 @@
 package util
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"time"
@@ -9,9 +11,8 @@ import (
 )
 
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
-var expireTime time.Duration = 30
 
-func GenerateJTWTokens(userID int32, email string) (accessToken string, refreshToken string, err error) {
+func GenerateJWTTokens(userID int32, email string, refreshTokenExpiry time.Time) (accessToken string, refreshToken string, err error) {
 	accessClaims := jwt.MapClaims{
 		"user_id": userID,
 		"email":   email,
@@ -21,7 +22,7 @@ func GenerateJTWTokens(userID int32, email string) (accessToken string, refreshT
 	refreshClaims := jwt.MapClaims{
 		"user_id": userID,
 		"email":   email,
-		"exp":     time.Now().Add(expireTime * 24 * time.Hour).Unix(),
+		"exp":     refreshTokenExpiry.Unix(),
 	}
 
 	accessJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
@@ -82,4 +83,17 @@ func VerifyRefreshToken(tokenStr string) (jwt.MapClaims, error) {
 	}
 
 	return claims, nil
+}
+
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func CheckToken(hashedToken string, plain string) error {
+	hashed := HashToken(plain)
+	if hashed != hashedToken {
+		return errors.New("refresh token mismatch")
+	}
+	return nil
 }

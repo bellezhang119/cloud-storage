@@ -10,6 +10,8 @@ import (
 	"github.com/bellezhang119/cloud-storage/internal/util"
 )
 
+var expireTime time.Duration = 30
+
 type Service struct {
 	queries *database.Queries
 }
@@ -18,7 +20,12 @@ func NewService(q *database.Queries) *Service {
 	return &Service{queries: q}
 }
 
-func (s *Service) CreateUser(ctx context.Context, email, passwordHash string) (database.User, error) {
+func (s *Service) CreateUser(ctx context.Context, email, password string) (database.User, error) {
+	hashedPassword, err := util.HashPassword(password)
+	if err != nil {
+		return database.User{}, err
+	}
+
 	verificationToken, err := util.GenerateVerificationToken()
 	if err != nil {
 		return database.User{}, err
@@ -28,7 +35,7 @@ func (s *Service) CreateUser(ctx context.Context, email, passwordHash string) (d
 
 	return s.queries.CreateUser(ctx, database.CreateUserParams{
 		Email:        email,
-		PasswordHash: passwordHash,
+		PasswordHash: hashedPassword,
 		IsVerified:   false,
 		VerificationToken: sql.NullString{
 			String: verificationToken,
@@ -63,4 +70,109 @@ func (s *Service) VerifyUserByToken(ctx context.Context, token string) error {
 
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (database.User, error) {
 	return s.queries.GetUserByEmail(ctx, email)
+}
+
+func (s *Service) UpdateVerificationToken(ctx context.Context, user database.User) (string, error) {
+	verificationToken, err := util.GenerateVerificationToken()
+	if err != nil {
+		return "", err
+	}
+
+	expiry := time.Now().Add(24 * time.Hour)
+	err = s.queries.UpdateVerificationToken(ctx, database.UpdateVerificationTokenParams{
+		VerificationToken: sql.NullString{
+			String: verificationToken,
+			Valid:  true,
+		},
+		VerificationTokenExpiry: sql.NullTime{
+			Time:  expiry,
+			Valid: true,
+		},
+		Email: user.Email,
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return verificationToken, nil
+}
+
+func (s *Service) AuthenticateUser(ctx context.Context, email, password string) (database.User, error) {
+	user, err := s.queries.GetUserByEmail(ctx, email)
+	if err != nil {
+		return database.User{}, err
+	}
+
+	if err := util.CheckPassword(user.PasswordHash, password); err != nil {
+		return database.User{}, err
+	}
+
+	return user, nil
+}
+
+func (s *Service) GenerateJWTTokens(ctx context.Context, user database.User) (accessToken string, refreshToken string, err error) {
+	expiry := time.Now().Add(expireTime * 24 * time.Hour)
+	accessToken, refreshToken, err = util.GenerateJWTTokens(user.ID, user.Email, expiry)
+
+	if err != nil {
+		return "", "", err
+	}
+
+	hashedRefreshToken := util.HashToken(refreshToken)
+
+	err = s.queries.InsertRefreshToken(ctx, database.InsertRefreshTokenParams{
+		TokenHash: hashedRefreshToken,
+		UserID:    user.ID,
+		ExpiresAt: expiry,
+	})
+
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+func (s *Service) RefreshJWTTokens(ctx context.Context, oldRefreshToken string) (accessToken string, refreshToken string, err error) {
+	claims, err := util.VerifyRefreshToken(oldRefreshToken)
+	if err != nil {
+		return "", "", err
+	}
+
+	userID := int32(claims["user_id"].(float64))
+	hashedOld := util.HashToken(oldRefreshToken)
+	rt, err := s.queries.GetRefreshToken(ctx, hashedOld)
+	if err != nil || rt.Revoked {
+		return "", "", errors.New("refresh token revoked or not found")
+	}
+
+	user, err := s.queries.GetUserByID(ctx, userID)
+	if err != nil {
+		return "", "", err
+	}
+
+	expiry := time.Unix(int64(claims["exp"].(float64)), 0)
+	accessToken, refreshToken, err = util.GenerateJWTTokens(user.ID, user.Email, expiry)
+	if err != nil {
+		return "", "", err
+	}
+
+	newHashed := util.HashToken(refreshToken)
+	err = s.queries.InsertRefreshToken(ctx, database.InsertRefreshTokenParams{
+		TokenHash: newHashed,
+		UserID:    user.ID,
+		ExpiresAt: expiry,
+	})
+
+	if err != nil {
+		return "", "", err
+	}
+
+	err = s.queries.RevokeRefreshToken(ctx, hashedOld)
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
 }

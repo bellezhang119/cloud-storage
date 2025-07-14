@@ -75,6 +75,26 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 	return i, err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at FROM users WHERE id = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.IsVerified,
+		&i.VerificationToken,
+		&i.VerificationTokenExpiry,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserByVerificationToken = `-- name: GetUserByVerificationToken :one
 SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at FROM users WHERE verification_token = $1
 `
@@ -97,11 +117,28 @@ func (q *Queries) GetUserByVerificationToken(ctx context.Context, verificationTo
 
 const markUserAsVerified = `-- name: MarkUserAsVerified :exec
 UPDATE users
-SET is_verified = TRUE, verification_token = NULL, verification_token_expiry = NULL
+SET is_verified = TRUE, verification_token = NULL, verification_token_expiry = NULL, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
 `
 
 func (q *Queries) MarkUserAsVerified(ctx context.Context, id int32) error {
 	_, err := q.db.ExecContext(ctx, markUserAsVerified, id)
+	return err
+}
+
+const updateVerificationToken = `-- name: UpdateVerificationToken :exec
+UPDATE users
+SET verification_token = $1, verification_token_expiry = $2, updated_at = CURRENT_TIMESTAMP
+WHERE email = $3
+`
+
+type UpdateVerificationTokenParams struct {
+	VerificationToken       sql.NullString
+	VerificationTokenExpiry sql.NullTime
+	Email                   string
+}
+
+func (q *Queries) UpdateVerificationToken(ctx context.Context, arg UpdateVerificationTokenParams) error {
+	_, err := q.db.ExecContext(ctx, updateVerificationToken, arg.VerificationToken, arg.VerificationTokenExpiry, arg.Email)
 	return err
 }

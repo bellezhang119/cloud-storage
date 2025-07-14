@@ -12,6 +12,9 @@ func NewRouter(authService *auth.Service) *http.ServeMux {
 	// Auth routes
 	mux.HandleFunc("POST /auth/register", auth.RegisterHandler(authService))
 	mux.HandleFunc("GET /auth/verify", auth.VerifyEmailHandler(authService))
+	mux.HandleFunc("POST /auth/resend-verification", auth.SendVerificationEmailHandler(authService))
+	mux.HandleFunc("POST /auth/login", auth.LoginHandler(authService))
+	mux.HandleFunc("POST /auth/refresh", auth.RefreshTokenHandler(authService))
 
 	// Health checks
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {

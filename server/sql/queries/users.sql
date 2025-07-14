@@ -15,10 +15,18 @@ RETURNING id, email, password_hash, is_verified, verification_token, verificatio
 -- name: GetUserByEmail :one
 SELECT * FROM users WHERE email = $1;
 
+-- name: GetUserByID :one
+SELECT * FROM users WHERE id = $1;
+
 -- name: GetUserByVerificationToken :one
 SELECT * FROM users WHERE verification_token = $1;
 
 -- name: MarkUserAsVerified :exec
 UPDATE users
-SET is_verified = TRUE, verification_token = NULL, verification_token_expiry = NULL
+SET is_verified = TRUE, verification_token = NULL, verification_token_expiry = NULL, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
+
+-- name: UpdateVerificationToken :exec
+UPDATE users
+SET verification_token = $1, verification_token_expiry = $2, updated_at = CURRENT_TIMESTAMP
+WHERE email = $3;
