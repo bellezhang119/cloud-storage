@@ -12,11 +12,23 @@ import (
 
 var expireTime time.Duration = 30
 
-type Service struct {
-	queries *database.Queries
+type Queries interface {
+	CreateUser(ctx context.Context, params database.CreateUserParams) (database.User, error)
+	GetUserByVerificationToken(ctx context.Context, token sql.NullString) (database.User, error)
+	MarkUserAsVerified(ctx context.Context, id int32) error
+	GetUserByEmail(ctx context.Context, email string) (database.User, error)
+	UpdateVerificationToken(ctx context.Context, params database.UpdateVerificationTokenParams) error
+	InsertRefreshToken(ctx context.Context, params database.InsertRefreshTokenParams) error
+	GetRefreshToken(ctx context.Context, tokenHash string) (database.GetRefreshTokenRow, error)
+	GetUserByID(ctx context.Context, id int32) (database.User, error)
+	RevokeRefreshToken(ctx context.Context, hash string) error
 }
 
-func NewService(q *database.Queries) *Service {
+type Service struct {
+	queries Queries
+}
+
+func NewService(q Queries) *Service {
 	return &Service{queries: q}
 }
 

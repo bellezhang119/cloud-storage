@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bellezhang119/cloud-storage/internal/util"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type contextKey string
@@ -13,37 +13,49 @@ type contextKey string
 const userIDKey contextKey = "user_id"
 const userEmailKey contextKey = "user_email"
 
-func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
-			return
-		}
+type TokenVerifier func(tokenStr string) (jwt.MapClaims, error)
 
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+func GetUserIDKey() interface{} {
+	return userIDKey
+}
 
-		claims, err := util.VerifyAccessToken(tokenStr)
-		if err != nil {
-			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
-			return
-		}
+func GetUserEmailKey() interface{} {
+	return userEmailKey
+}
 
-		userID, ok := claims["user_id"].(float64)
-		if !ok {
-			http.Error(w, "Invalid token payload", http.StatusUnauthorized)
-			return
-		}
+func AuthMiddleware(verify TokenVerifier) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+				http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+				return
+			}
 
-		email, ok := claims["email"].(string)
-		if !ok {
-			http.Error(w, "Invalid token payload", http.StatusUnauthorized)
-			return
-		}
+			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
-		ctx := context.WithValue(r.Context(), userIDKey, int32(userID))
-		ctx = context.WithValue(ctx, userEmailKey, email)
+			claims, err := verify(tokenStr)
+			if err != nil {
+				http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+				return
+			}
 
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+			userID, ok := claims["user_id"].(float64)
+			if !ok {
+				http.Error(w, "Invalid token payload", http.StatusUnauthorized)
+				return
+			}
+
+			email, ok := claims["email"].(string)
+			if !ok {
+				http.Error(w, "Invalid token payload", http.StatusUnauthorized)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), userIDKey, int32(userID))
+			ctx = context.WithValue(ctx, userEmailKey, email)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }

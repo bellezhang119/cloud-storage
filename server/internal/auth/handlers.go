@@ -1,13 +1,25 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 
+	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 )
+
+type ServiceInterface interface {
+	CreateUser(ctx context.Context, email, password string) (database.User, error)
+	VerifyUserByToken(ctx context.Context, token string) error
+	GetUserByEmail(ctx context.Context, email string) (database.User, error)
+	UpdateVerificationToken(ctx context.Context, user database.User) (string, error)
+	AuthenticateUser(ctx context.Context, email, password string) (database.User, error)
+	GenerateJWTTokens(ctx context.Context, user database.User) (string, string, error)
+	RefreshJWTTokens(ctx context.Context, oldRefreshToken string) (string, string, error)
+}
 
 type RegisterRequest struct {
 	Email    string `json:"email"`
@@ -27,7 +39,9 @@ type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func RegisterHandler(service *Service) http.HandlerFunc {
+type EmailSender func(to, subject, body string) error
+
+func RegisterHandler(service ServiceInterface, sendEmail EmailSender) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req RegisterRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -50,7 +64,7 @@ func RegisterHandler(service *Service) http.HandlerFunc {
 		verificationLink := fmt.Sprintf("http://localhost%s/auth/verify?token=%s", portString, user.VerificationToken.String)
 		subject := "Verify your email address at Cloud-Storage"
 		body := fmt.Sprintf("Click the link to verify your email:\n\n%s", verificationLink)
-		err = util.SendEmail(user.Email, subject, body)
+		err = sendEmail(user.Email, subject, body)
 
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -63,7 +77,7 @@ func RegisterHandler(service *Service) http.HandlerFunc {
 	}
 }
 
-func VerifyEmailHandler(service *Service) http.HandlerFunc {
+func VerifyEmailHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("token")
 		if token == "" {
@@ -82,7 +96,7 @@ func VerifyEmailHandler(service *Service) http.HandlerFunc {
 	}
 }
 
-func SendVerificationEmailHandler(service *Service) http.HandlerFunc {
+func SendVerificationEmailHandler(service ServiceInterface, sendEmail EmailSender) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SendVerificationEmailRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -113,7 +127,7 @@ func SendVerificationEmailHandler(service *Service) http.HandlerFunc {
 		verificationLink := fmt.Sprintf("http://localhost%s/auth/verify?token=%s", portString, verificationToken)
 		subject := "Verify your email address at Cloud-Storage"
 		body := fmt.Sprintf("Click the link to verify your email:\n\n%s", verificationLink)
-		err = util.SendEmail(user.Email, subject, body)
+		err = sendEmail(user.Email, subject, body)
 
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -126,7 +140,7 @@ func SendVerificationEmailHandler(service *Service) http.HandlerFunc {
 	}
 }
 
-func LoginHandler(service *Service) http.HandlerFunc {
+func LoginHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req LoginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -158,7 +172,7 @@ func LoginHandler(service *Service) http.HandlerFunc {
 	}
 }
 
-func RefreshTokenHandler(service *Service) http.HandlerFunc {
+func RefreshTokenHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req RefreshTokenRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
