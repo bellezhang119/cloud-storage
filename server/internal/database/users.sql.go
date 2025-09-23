@@ -22,7 +22,7 @@ INSERT INTO users (
 ) VALUES (
     $1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 )
-RETURNING id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at
+RETURNING id, email, password_hash, is_verified, verification_token, verification_token_expiry, used_storage, created_at, updated_at
 `
 
 type CreateUserParams struct {
@@ -49,6 +49,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.IsVerified,
 		&i.VerificationToken,
 		&i.VerificationTokenExpiry,
+		&i.UsedStorage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -56,7 +57,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at FROM users WHERE email = $1
+SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, used_storage, created_at, updated_at FROM users WHERE email = $1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -69,6 +70,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.IsVerified,
 		&i.VerificationToken,
 		&i.VerificationTokenExpiry,
+		&i.UsedStorage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -76,7 +78,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at FROM users WHERE id = $1
+SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, used_storage, created_at, updated_at FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
@@ -89,6 +91,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 		&i.IsVerified,
 		&i.VerificationToken,
 		&i.VerificationTokenExpiry,
+		&i.UsedStorage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -96,7 +99,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 }
 
 const getUserByVerificationToken = `-- name: GetUserByVerificationToken :one
-SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, created_at, updated_at FROM users WHERE verification_token = $1
+SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, used_storage, created_at, updated_at FROM users WHERE verification_token = $1
 `
 
 func (q *Queries) GetUserByVerificationToken(ctx context.Context, verificationToken sql.NullString) (User, error) {
@@ -109,6 +112,7 @@ func (q *Queries) GetUserByVerificationToken(ctx context.Context, verificationTo
 		&i.IsVerified,
 		&i.VerificationToken,
 		&i.VerificationTokenExpiry,
+		&i.UsedStorage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

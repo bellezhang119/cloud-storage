@@ -7,7 +7,50 @@ package database
 import (
 	"database/sql"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/sqlc-dev/pqtype"
 )
+
+type File struct {
+	ID        uuid.UUID
+	FolderID  uuid.NullUUID
+	UserID    sql.NullInt32
+	Name      string
+	FilePath  string
+	SizeBytes int64
+	MimeType  sql.NullString
+	IsTrashed sql.NullBool
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+	DeletedAt sql.NullTime
+}
+
+type FileActivity struct {
+	ID        uuid.UUID
+	FileID    uuid.NullUUID
+	UserID    sql.NullInt32
+	Action    string
+	Details   pqtype.NullRawMessage
+	CreatedAt time.Time
+}
+
+type FileShare struct {
+	ID         uuid.UUID
+	FileID     uuid.NullUUID
+	SharedWith sql.NullInt32
+	Permission sql.NullString
+	CreatedAt  sql.NullTime
+}
+
+type Folder struct {
+	ID        uuid.UUID
+	UserID    sql.NullInt32
+	Name      string
+	ParentID  uuid.NullUUID
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+}
 
 type RefreshToken struct {
 	TokenHash string
@@ -24,6 +67,7 @@ type User struct {
 	IsVerified              bool
 	VerificationToken       sql.NullString
 	VerificationTokenExpiry sql.NullTime
+	UsedStorage             int64
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 }

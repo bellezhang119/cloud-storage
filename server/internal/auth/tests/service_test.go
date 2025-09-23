@@ -66,14 +66,23 @@ func TestCreateUser_Success(t *testing.T) {
 	mockQ := new(MockQueries)
 	svc := auth.NewService(mockQ)
 	ctx := context.Background()
+
 	email := "test@example.com"
 	password := "password123"
+	mockID := int32(1)
 
-	mockQ.On("CreateUser", mock.Anything, mock.Anything).Return(database.User{Email: email}, nil)
+	mockQ.On("CreateUser", mock.Anything, mock.Anything).Return(database.User{
+		ID:    mockID,
+		Email: email,
+	}, nil)
 
 	user, err := svc.CreateUser(ctx, email, password)
+
 	assert.NoError(t, err)
 	assert.Equal(t, email, user.Email)
+	assert.Equal(t, mockID, user.ID)
+	assert.NotZero(t, user.ID, "User ID should not be zero")
+
 	mockQ.AssertExpectations(t)
 }
 
