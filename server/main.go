@@ -10,6 +10,7 @@ import (
 	"github.com/bellezhang119/cloud-storage/internal/config"
 	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/server"
+	"github.com/bellezhang119/cloud-storage/internal/user"
 	"github.com/joho/godotenv"
 )
 
@@ -20,7 +21,8 @@ func main() {
 	}
 
 	queries := database.New(db)
-	authService := auth.NewService(queries)
+	userService := user.NewService(queries)
+	authService := auth.NewService(queries, userService)
 
 	godotenv.Load(".env")
 

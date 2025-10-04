@@ -56,6 +56,16 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteUser = `-- name: DeleteUser :exec
+DELETE FROM users
+WHERE id = $1
+`
+
+func (q *Queries) DeleteUser(ctx context.Context, id int32) error {
+	_, err := q.db.ExecContext(ctx, deleteUser, id)
+	return err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, password_hash, is_verified, verification_token, verification_token_expiry, used_storage, created_at, updated_at FROM users WHERE email = $1
 `
@@ -127,6 +137,40 @@ WHERE id = $1
 
 func (q *Queries) MarkUserAsVerified(ctx context.Context, id int32) error {
 	_, err := q.db.ExecContext(ctx, markUserAsVerified, id)
+	return err
+}
+
+const updateUsedStorage = `-- name: UpdateUsedStorage :exec
+UPDATE users
+SET used_storage = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+type UpdateUsedStorageParams struct {
+	ID          int32
+	UsedStorage int64
+}
+
+func (q *Queries) UpdateUsedStorage(ctx context.Context, arg UpdateUsedStorageParams) error {
+	_, err := q.db.ExecContext(ctx, updateUsedStorage, arg.ID, arg.UsedStorage)
+	return err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users
+SET password_hash = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+type UpdateUserPasswordParams struct {
+	ID           int32
+	PasswordHash string
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
 	return err
 }
 

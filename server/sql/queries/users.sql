@@ -30,3 +30,19 @@ WHERE id = $1;
 UPDATE users
 SET verification_token = $1, verification_token_expiry = $2, updated_at = CURRENT_TIMESTAMP
 WHERE email = $3;
+
+-- name: UpdateUserPassword :exec
+UPDATE users
+SET password_hash = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: UpdateUsedStorage :exec
+UPDATE users
+SET used_storage = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: DeleteUser :exec
+DELETE FROM users
+WHERE id = $1;

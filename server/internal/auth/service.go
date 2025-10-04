@@ -16,20 +16,27 @@ type Queries interface {
 	CreateUser(ctx context.Context, params database.CreateUserParams) (database.User, error)
 	GetUserByVerificationToken(ctx context.Context, token sql.NullString) (database.User, error)
 	MarkUserAsVerified(ctx context.Context, id int32) error
-	GetUserByEmail(ctx context.Context, email string) (database.User, error)
 	UpdateVerificationToken(ctx context.Context, params database.UpdateVerificationTokenParams) error
 	InsertRefreshToken(ctx context.Context, params database.InsertRefreshTokenParams) error
 	GetRefreshToken(ctx context.Context, tokenHash string) (database.GetRefreshTokenRow, error)
-	GetUserByID(ctx context.Context, id int32) (database.User, error)
 	RevokeRefreshToken(ctx context.Context, hash string) error
 }
 
-type Service struct {
-	queries Queries
+type UserGetter interface {
+	GetUserByID(ctx context.Context, id int32) (database.User, error)
+	GetUserByEmail(ctx context.Context, email string) (database.User, error)
 }
 
-func NewService(q Queries) *Service {
-	return &Service{queries: q}
+type Service struct {
+	queries     Queries
+	userService UserGetter
+}
+
+func NewService(q Queries, us UserGetter) *Service {
+	return &Service{
+		queries:     q,
+		userService: us,
+	}
 }
 
 func (s *Service) CreateUser(ctx context.Context, email, password string) (database.User, error) {
@@ -81,7 +88,7 @@ func (s *Service) VerifyUserByToken(ctx context.Context, token string) error {
 }
 
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (database.User, error) {
-	return s.queries.GetUserByEmail(ctx, email)
+	return s.userService.GetUserByEmail(ctx, email)
 }
 
 func (s *Service) UpdateVerificationToken(ctx context.Context, user database.User) (string, error) {
@@ -111,7 +118,7 @@ func (s *Service) UpdateVerificationToken(ctx context.Context, user database.Use
 }
 
 func (s *Service) AuthenticateUser(ctx context.Context, email, password string) (database.User, error) {
-	user, err := s.queries.GetUserByEmail(ctx, email)
+	user, err := s.userService.GetUserByEmail(ctx, email)
 	if err != nil {
 		return database.User{}, err
 	}
@@ -159,7 +166,7 @@ func (s *Service) RefreshJWTTokens(ctx context.Context, oldRefreshToken string) 
 		return "", "", errors.New("refresh token revoked or not found")
 	}
 
-	user, err := s.queries.GetUserByID(ctx, userID)
+	user, err := s.userService.GetUserByID(ctx, userID)
 	if err != nil {
 		return "", "", err
 	}

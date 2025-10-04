@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/bellezhang119/cloud-storage/internal/auth"
+	"github.com/bellezhang119/cloud-storage/internal/middleware.go"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,12 +18,12 @@ func TestAuthMiddleware_Success(t *testing.T) {
 		}, nil
 	}
 
-	middleware := auth.AuthMiddleware(mockVerifier)
+	mdlware := middleware.AuthMiddleware(mockVerifier)
 
 	// Dummy handler to verify context values
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID := r.Context().Value(auth.GetUserIDKey())
-		email := r.Context().Value(auth.GetUserEmailKey())
+	handler := mdlware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID := r.Context().Value(middleware.GetUserIDKey())
+		email := r.Context().Value(middleware.GetUserEmailKey())
 
 		assert.Equal(t, int32(123), userID)
 		assert.Equal(t, "test@example.com", email)
@@ -41,11 +41,11 @@ func TestAuthMiddleware_Success(t *testing.T) {
 }
 
 func TestAuthMiddleware_MissingAuthorizationHeader(t *testing.T) {
-	middleware := auth.AuthMiddleware(func(string) (jwt.MapClaims, error) {
+	mdlware := middleware.AuthMiddleware(func(string) (jwt.MapClaims, error) {
 		return nil, nil // Won't be called
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mdlware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("Handler should not be called")
 	}))
 
@@ -59,11 +59,11 @@ func TestAuthMiddleware_MissingAuthorizationHeader(t *testing.T) {
 }
 
 func TestAuthMiddleware_InvalidToken(t *testing.T) {
-	middleware := auth.AuthMiddleware(func(token string) (jwt.MapClaims, error) {
+	mdlware := middleware.AuthMiddleware(func(token string) (jwt.MapClaims, error) {
 		return nil, jwt.ErrTokenMalformed
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mdlware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("Handler should not be called")
 	}))
 
@@ -78,14 +78,14 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_InvalidPayload(t *testing.T) {
-	middleware := auth.AuthMiddleware(func(tokenStr string) (jwt.MapClaims, error) {
+	mdlware := middleware.AuthMiddleware(func(tokenStr string) (jwt.MapClaims, error) {
 		return jwt.MapClaims{
 			"user_id": "not-a-number",
 			"email":   123,
 		}, nil
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mdlware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("Handler should not be called")
 	}))
 
