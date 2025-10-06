@@ -11,8 +11,10 @@ SELECT * FROM files
 WHERE folder_id = $1 AND name = $2 AND is_trashed = FALSE;
 
 -- name: ListFilesInFolder :many
-SELECT * FROM files
-WHERE folder_id = $1 AND is_trashed = FALSE
+SELECT *
+FROM files
+WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL))
+  AND is_trashed = FALSE
 ORDER BY name;
 
 -- name: TrashFile :exec
@@ -31,4 +33,9 @@ DELETE FROM files WHERE id = $1 AND user_id = $2;
 -- name: UpdateFileMetadata :exec
 UPDATE files
 SET name = $2, updated_at = now()
+WHERE id = $1 AND user_id = $3;
+
+-- name: UpdateFilePath :exec
+UPDATE files
+SET file_path = $2, updated_at = now()
 WHERE id = $1 AND user_id = $3;
