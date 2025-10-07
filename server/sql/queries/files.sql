@@ -17,25 +17,26 @@ WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL))
   AND is_trashed = FALSE
 ORDER BY name;
 
--- name: TrashFile :exec
+-- name: TrashFile :execrows
 UPDATE files
 SET is_trashed = TRUE, deleted_at = now()
 WHERE id = $1 AND user_id = $2;
 
--- name: RestoreFile :exec
+-- name: RestoreFile :execrows
 UPDATE files
 SET is_trashed = FALSE, deleted_at = NULL
 WHERE id = $1 AND user_id = $2;
 
--- name: PermanentlyDeleteFile :exec
-DELETE FROM files WHERE id = $1 AND user_id = $2;
+-- name: PermanentlyDeleteFile :execrows
+DELETE FROM files
+WHERE id = $1 AND user_id = $2;
 
--- name: UpdateFileMetadata :exec
+-- name: UpdateFileMetadata :execrows
 UPDATE files
 SET name = $2, updated_at = now()
 WHERE id = $1 AND user_id = $3;
 
--- name: UpdateFilePath :exec
+-- name: UpdateFilePath :execrows
 UPDATE files
 SET file_path = $2, updated_at = now()
 WHERE id = $1 AND user_id = $3;

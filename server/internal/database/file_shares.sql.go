@@ -45,7 +45,7 @@ func (q *Queries) GetFileShares(ctx context.Context, fileID uuid.NullUUID) ([]Fi
 	return items, nil
 }
 
-const removeFileShare = `-- name: RemoveFileShare :exec
+const removeFileShare = `-- name: RemoveFileShare :execrows
 DELETE FROM file_shares
 WHERE file_id = $1 AND shared_with = $2
 `
@@ -55,9 +55,12 @@ type RemoveFileShareParams struct {
 	SharedWith sql.NullInt32
 }
 
-func (q *Queries) RemoveFileShare(ctx context.Context, arg RemoveFileShareParams) error {
-	_, err := q.db.ExecContext(ctx, removeFileShare, arg.FileID, arg.SharedWith)
-	return err
+func (q *Queries) RemoveFileShare(ctx context.Context, arg RemoveFileShareParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, removeFileShare, arg.FileID, arg.SharedWith)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const shareFile = `-- name: ShareFile :one

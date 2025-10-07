@@ -148,8 +148,9 @@ func (q *Queries) ListFilesInFolder(ctx context.Context, folderID uuid.NullUUID)
 	return items, nil
 }
 
-const permanentlyDeleteFile = `-- name: PermanentlyDeleteFile :exec
-DELETE FROM files WHERE id = $1 AND user_id = $2
+const permanentlyDeleteFile = `-- name: PermanentlyDeleteFile :execrows
+DELETE FROM files
+WHERE id = $1 AND user_id = $2
 `
 
 type PermanentlyDeleteFileParams struct {
@@ -157,12 +158,15 @@ type PermanentlyDeleteFileParams struct {
 	UserID sql.NullInt32
 }
 
-func (q *Queries) PermanentlyDeleteFile(ctx context.Context, arg PermanentlyDeleteFileParams) error {
-	_, err := q.db.ExecContext(ctx, permanentlyDeleteFile, arg.ID, arg.UserID)
-	return err
+func (q *Queries) PermanentlyDeleteFile(ctx context.Context, arg PermanentlyDeleteFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, permanentlyDeleteFile, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const restoreFile = `-- name: RestoreFile :exec
+const restoreFile = `-- name: RestoreFile :execrows
 UPDATE files
 SET is_trashed = FALSE, deleted_at = NULL
 WHERE id = $1 AND user_id = $2
@@ -173,12 +177,15 @@ type RestoreFileParams struct {
 	UserID sql.NullInt32
 }
 
-func (q *Queries) RestoreFile(ctx context.Context, arg RestoreFileParams) error {
-	_, err := q.db.ExecContext(ctx, restoreFile, arg.ID, arg.UserID)
-	return err
+func (q *Queries) RestoreFile(ctx context.Context, arg RestoreFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, restoreFile, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const trashFile = `-- name: TrashFile :exec
+const trashFile = `-- name: TrashFile :execrows
 UPDATE files
 SET is_trashed = TRUE, deleted_at = now()
 WHERE id = $1 AND user_id = $2
@@ -189,12 +196,15 @@ type TrashFileParams struct {
 	UserID sql.NullInt32
 }
 
-func (q *Queries) TrashFile(ctx context.Context, arg TrashFileParams) error {
-	_, err := q.db.ExecContext(ctx, trashFile, arg.ID, arg.UserID)
-	return err
+func (q *Queries) TrashFile(ctx context.Context, arg TrashFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, trashFile, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateFileMetadata = `-- name: UpdateFileMetadata :exec
+const updateFileMetadata = `-- name: UpdateFileMetadata :execrows
 UPDATE files
 SET name = $2, updated_at = now()
 WHERE id = $1 AND user_id = $3
@@ -206,12 +216,15 @@ type UpdateFileMetadataParams struct {
 	UserID sql.NullInt32
 }
 
-func (q *Queries) UpdateFileMetadata(ctx context.Context, arg UpdateFileMetadataParams) error {
-	_, err := q.db.ExecContext(ctx, updateFileMetadata, arg.ID, arg.Name, arg.UserID)
-	return err
+func (q *Queries) UpdateFileMetadata(ctx context.Context, arg UpdateFileMetadataParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateFileMetadata, arg.ID, arg.Name, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateFilePath = `-- name: UpdateFilePath :exec
+const updateFilePath = `-- name: UpdateFilePath :execrows
 UPDATE files
 SET file_path = $2, updated_at = now()
 WHERE id = $1 AND user_id = $3
@@ -223,7 +236,10 @@ type UpdateFilePathParams struct {
 	UserID   sql.NullInt32
 }
 
-func (q *Queries) UpdateFilePath(ctx context.Context, arg UpdateFilePathParams) error {
-	_, err := q.db.ExecContext(ctx, updateFilePath, arg.ID, arg.FilePath, arg.UserID)
-	return err
+func (q *Queries) UpdateFilePath(ctx context.Context, arg UpdateFilePathParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateFilePath, arg.ID, arg.FilePath, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

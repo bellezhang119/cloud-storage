@@ -56,14 +56,17 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
-const deleteUser = `-- name: DeleteUser :exec
+const deleteUser = `-- name: DeleteUser :execrows
 DELETE FROM users
 WHERE id = $1
 `
 
-func (q *Queries) DeleteUser(ctx context.Context, id int32) error {
-	_, err := q.db.ExecContext(ctx, deleteUser, id)
-	return err
+func (q *Queries) DeleteUser(ctx context.Context, id int32) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
@@ -129,18 +132,24 @@ func (q *Queries) GetUserByVerificationToken(ctx context.Context, verificationTo
 	return i, err
 }
 
-const markUserAsVerified = `-- name: MarkUserAsVerified :exec
+const markUserAsVerified = `-- name: MarkUserAsVerified :execrows
 UPDATE users
-SET is_verified = TRUE, verification_token = NULL, verification_token_expiry = NULL, updated_at = CURRENT_TIMESTAMP
+SET is_verified = TRUE,
+    verification_token = NULL,
+    verification_token_expiry = NULL,
+    updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
 `
 
-func (q *Queries) MarkUserAsVerified(ctx context.Context, id int32) error {
-	_, err := q.db.ExecContext(ctx, markUserAsVerified, id)
-	return err
+func (q *Queries) MarkUserAsVerified(ctx context.Context, id int32) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markUserAsVerified, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateUsedStorage = `-- name: UpdateUsedStorage :exec
+const updateUsedStorage = `-- name: UpdateUsedStorage :execrows
 UPDATE users
 SET used_storage = $2,
     updated_at = CURRENT_TIMESTAMP
@@ -152,12 +161,15 @@ type UpdateUsedStorageParams struct {
 	UsedStorage int64
 }
 
-func (q *Queries) UpdateUsedStorage(ctx context.Context, arg UpdateUsedStorageParams) error {
-	_, err := q.db.ExecContext(ctx, updateUsedStorage, arg.ID, arg.UsedStorage)
-	return err
+func (q *Queries) UpdateUsedStorage(ctx context.Context, arg UpdateUsedStorageParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateUsedStorage, arg.ID, arg.UsedStorage)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateUserPassword = `-- name: UpdateUserPassword :exec
+const updateUserPassword = `-- name: UpdateUserPassword :execrows
 UPDATE users
 SET password_hash = $2,
     updated_at = CURRENT_TIMESTAMP
@@ -169,14 +181,19 @@ type UpdateUserPasswordParams struct {
 	PasswordHash string
 }
 
-func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
-	return err
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateVerificationToken = `-- name: UpdateVerificationToken :exec
+const updateVerificationToken = `-- name: UpdateVerificationToken :execrows
 UPDATE users
-SET verification_token = $1, verification_token_expiry = $2, updated_at = CURRENT_TIMESTAMP
+SET verification_token = $1,
+    verification_token_expiry = $2,
+    updated_at = CURRENT_TIMESTAMP
 WHERE email = $3
 `
 
@@ -186,7 +203,10 @@ type UpdateVerificationTokenParams struct {
 	Email                   string
 }
 
-func (q *Queries) UpdateVerificationToken(ctx context.Context, arg UpdateVerificationTokenParams) error {
-	_, err := q.db.ExecContext(ctx, updateVerificationToken, arg.VerificationToken, arg.VerificationTokenExpiry, arg.Email)
-	return err
+func (q *Queries) UpdateVerificationToken(ctx context.Context, arg UpdateVerificationTokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateVerificationToken, arg.VerificationToken, arg.VerificationTokenExpiry, arg.Email)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

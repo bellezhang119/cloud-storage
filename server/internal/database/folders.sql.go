@@ -38,8 +38,9 @@ func (q *Queries) CreateFolder(ctx context.Context, arg CreateFolderParams) (Fol
 	return i, err
 }
 
-const deleteFolder = `-- name: DeleteFolder :exec
-DELETE FROM folders WHERE id = $1 AND user_id = $2
+const deleteFolder = `-- name: DeleteFolder :execrows
+DELETE FROM folders
+WHERE id = $1 AND user_id = $2
 `
 
 type DeleteFolderParams struct {
@@ -47,9 +48,12 @@ type DeleteFolderParams struct {
 	UserID sql.NullInt32
 }
 
-func (q *Queries) DeleteFolder(ctx context.Context, arg DeleteFolderParams) error {
-	_, err := q.db.ExecContext(ctx, deleteFolder, arg.ID, arg.UserID)
-	return err
+func (q *Queries) DeleteFolder(ctx context.Context, arg DeleteFolderParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteFolder, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getFolderByID = `-- name: GetFolderByID :one

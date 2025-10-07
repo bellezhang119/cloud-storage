@@ -27,19 +27,19 @@ func (m *MockAuthQueries) GetUserByVerificationToken(ctx context.Context, token 
 	return args.Get(0).(database.User), args.Error(1)
 }
 
-func (m *MockAuthQueries) MarkUserAsVerified(ctx context.Context, id int32) error {
+func (m *MockAuthQueries) MarkUserAsVerified(ctx context.Context, id int32) (int64, error) {
 	args := m.Called(ctx, id)
-	return args.Error(0)
+	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockAuthQueries) UpdateVerificationToken(ctx context.Context, params database.UpdateVerificationTokenParams) error {
+func (m *MockAuthQueries) UpdateVerificationToken(ctx context.Context, params database.UpdateVerificationTokenParams) (int64, error) {
 	args := m.Called(ctx, params)
-	return args.Error(0)
+	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockAuthQueries) InsertRefreshToken(ctx context.Context, params database.InsertRefreshTokenParams) error {
+func (m *MockAuthQueries) InsertRefreshToken(ctx context.Context, params database.InsertRefreshTokenParams) (database.RefreshToken, error) {
 	args := m.Called(ctx, params)
-	return args.Error(0)
+	return args.Get(0).(database.RefreshToken), args.Error(1)
 }
 
 func (m *MockAuthQueries) GetRefreshToken(ctx context.Context, hash string) (database.GetRefreshTokenRow, error) {
@@ -47,9 +47,9 @@ func (m *MockAuthQueries) GetRefreshToken(ctx context.Context, hash string) (dat
 	return args.Get(0).(database.GetRefreshTokenRow), args.Error(1)
 }
 
-func (m *MockAuthQueries) RevokeRefreshToken(ctx context.Context, hash string) error {
+func (m *MockAuthQueries) RevokeRefreshToken(ctx context.Context, hash string) (int64, error) {
 	args := m.Called(ctx, hash)
-	return args.Error(0)
+	return args.Get(0).(int64), args.Error(1)
 }
 
 type MockUserService struct {
@@ -66,26 +66,43 @@ func (m *MockUserService) GetUserByEmail(ctx context.Context, email string) (dat
 	return args.Get(0).(database.User), args.Error(1)
 }
 
-func TestCreateUser_Success(t *testing.T) {
+func TestVerifyUserByToken_Success(t *testing.T) {
 	mockQ := new(MockAuthQueries)
 	mockUserSvc := new(MockUserService)
 	svc := auth.NewService(mockQ, mockUserSvc)
 
 	ctx := context.Background()
-	email := "test@example.com"
-	password := "password123"
-	mockID := int32(1)
+	token := "validtoken"
 
-	mockQ.On("CreateUser", mock.Anything, mock.Anything).Return(database.User{
-		ID:    mockID,
-		Email: email,
-	}, nil)
+	user := database.User{
+		ID: 1,
+		VerificationTokenExpiry: sql.NullTime{
+			Time:  time.Now().Add(1 * time.Hour),
+			Valid: true,
+		},
+	}
 
-	user, err := svc.CreateUser(ctx, email, password)
+	mockQ.On("GetUserByVerificationToken", ctx, sql.NullString{String: token, Valid: true}).Return(user, nil)
+	mockQ.On("MarkUserAsVerified", ctx, user.ID).Return(int64(1), nil)
 
+	err := svc.VerifyUserByToken(ctx, token)
 	assert.NoError(t, err)
-	assert.Equal(t, email, user.Email)
-	assert.Equal(t, mockID, user.ID)
+	mockQ.AssertExpectations(t)
+}
+
+func TestUpdateVerificationToken_Success(t *testing.T) {
+	mockQ := new(MockAuthQueries)
+	mockUserSvc := new(MockUserService)
+	svc := auth.NewService(mockQ, mockUserSvc)
+
+	ctx := context.Background()
+	user := database.User{Email: "user@example.com"}
+
+	mockQ.On("UpdateVerificationToken", ctx, mock.Anything).Return(int64(1), nil)
+
+	token, err := svc.UpdateVerificationToken(ctx, user)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
 	mockQ.AssertExpectations(t)
 }
 
@@ -107,7 +124,7 @@ func TestVerifyUserByToken_TokenExpired(t *testing.T) {
 	mockQ.On("GetUserByVerificationToken", mock.Anything, mock.Anything).Return(expiredUser, nil)
 
 	err := svc.VerifyUserByToken(ctx, token)
-	assert.EqualError(t, err, "Token has expired")
+	assert.EqualError(t, err, "token has expired")
 	mockQ.AssertExpectations(t)
 }
 
@@ -138,11 +155,45 @@ func TestGenerateJWTTokens_Success(t *testing.T) {
 	ctx := context.Background()
 	user := database.User{ID: 1, Email: "user@example.com"}
 
-	mockQ.On("InsertRefreshToken", mock.Anything, mock.Anything).Return(nil)
+	mockQ.On("InsertRefreshToken", ctx, mock.Anything).Return(database.RefreshToken{}, nil)
 
 	access, refresh, err := svc.GenerateJWTTokens(ctx, user)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, access)
 	assert.NotEmpty(t, refresh)
 	mockQ.AssertExpectations(t)
+}
+
+func TestRefreshJWTTokens_Success(t *testing.T) {
+	mockQ := new(MockAuthQueries)
+	mockUserSvc := new(MockUserService)
+	svc := auth.NewService(mockQ, mockUserSvc)
+
+	ctx := context.Background()
+	user := database.User{ID: 1, Email: "user@example.com"}
+
+	_, oldToken, err := util.GenerateJWTTokens(user.ID, user.Email, time.Now().Add(1*time.Hour))
+	assert.NoError(t, err)
+
+	hashedOld := util.HashToken(oldToken)
+
+	rtRow := database.GetRefreshTokenRow{
+		TokenHash: hashedOld,
+		UserID:    user.ID,
+		Revoked:   false,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+
+	mockQ.On("GetRefreshToken", ctx, hashedOld).Return(rtRow, nil)
+	mockUserSvc.On("GetUserByID", ctx, user.ID).Return(user, nil)
+	mockQ.On("InsertRefreshToken", ctx, mock.Anything).Return(database.RefreshToken{}, nil)
+	mockQ.On("RevokeRefreshToken", ctx, hashedOld).Return(int64(1), nil)
+
+	access, refresh, err := svc.RefreshJWTTokens(ctx, oldToken)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, access)
+	assert.NotEmpty(t, refresh)
+
+	mockQ.AssertExpectations(t)
+	mockUserSvc.AssertExpectations(t)
 }

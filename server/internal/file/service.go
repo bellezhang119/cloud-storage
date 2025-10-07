@@ -18,11 +18,11 @@ type Queries interface {
 	GetFileByID(ctx context.Context, id uuid.UUID) (database.File, error)
 	GetFileByNameInFolder(ctx context.Context, arg database.GetFileByNameInFolderParams) (database.File, error)
 	ListFilesInFolder(ctx context.Context, folderID uuid.NullUUID) ([]database.File, error)
-	PermanentlyDeleteFile(ctx context.Context, arg database.PermanentlyDeleteFileParams) error
-	RestoreFile(ctx context.Context, arg database.RestoreFileParams) error
-	TrashFile(ctx context.Context, arg database.TrashFileParams) error
-	UpdateFileMetadata(ctx context.Context, arg database.UpdateFileMetadataParams) error
-	UpdateFilePath(ctx context.Context, arg database.UpdateFilePathParams) error
+	PermanentlyDeleteFile(ctx context.Context, arg database.PermanentlyDeleteFileParams) (int64, error)
+	RestoreFile(ctx context.Context, arg database.RestoreFileParams) (int64, error)
+	TrashFile(ctx context.Context, arg database.TrashFileParams) (int64, error)
+	UpdateFileMetadata(ctx context.Context, arg database.UpdateFileMetadataParams) (int64, error)
+	UpdateFilePath(ctx context.Context, arg database.UpdateFilePathParams) (int64, error)
 }
 
 type FolderGetter interface {
@@ -144,36 +144,45 @@ func (s *Service) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([
 }
 
 func (s *Service) PermanentlyDeleteFile(ctx context.Context, fileID uuid.UUID, userID int32) error {
-	if userID == 0 {
-		return errors.New("user ID is required to delete file")
-	}
-
-	return s.queries.PermanentlyDeleteFile(ctx, database.PermanentlyDeleteFileParams{
+	rows, err := s.queries.PermanentlyDeleteFile(ctx, database.PermanentlyDeleteFileParams{
 		ID:     fileID,
 		UserID: sql.NullInt32{Int32: userID, Valid: true},
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("file not found or already deleted")
+	}
+	return nil
 }
 
 func (s *Service) RestoreFile(ctx context.Context, fileID uuid.UUID, userID int32) error {
-	if userID == 0 {
-		return errors.New("user ID is required to restore file")
-	}
-
-	return s.queries.RestoreFile(ctx, database.RestoreFileParams{
+	rows, err := s.queries.RestoreFile(ctx, database.RestoreFileParams{
 		ID:     fileID,
 		UserID: sql.NullInt32{Int32: userID, Valid: true},
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("file not found or not trashed")
+	}
+	return nil
 }
 
 func (s *Service) TrashFile(ctx context.Context, fileID uuid.UUID, userID int32) error {
-	if userID == 0 {
-		return errors.New("user ID is required to trash file")
-	}
-
-	return s.queries.TrashFile(ctx, database.TrashFileParams{
+	rows, err := s.queries.TrashFile(ctx, database.TrashFileParams{
 		ID:     fileID,
 		UserID: sql.NullInt32{Int32: userID, Valid: true},
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("file not found or already trashed")
+	}
+	return nil
 }
 
 func (s *Service) UpdateFileMetadata(
@@ -182,19 +191,49 @@ func (s *Service) UpdateFileMetadata(
 	name string,
 	userID int32,
 ) error {
-	return s.queries.UpdateFileMetadata(ctx, database.UpdateFileMetadataParams{
+	rows, err := s.queries.UpdateFileMetadata(ctx, database.UpdateFileMetadataParams{
 		ID:     fileID,
 		Name:   name,
 		UserID: sql.NullInt32{Int32: userID, Valid: true},
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("file not found or metadata not changed")
+	}
+	return nil
 }
 
 func (s *Service) UpdateFilePath(ctx context.Context, fileID uuid.UUID, path string, userID int32) error {
-	return s.queries.UpdateFilePath(ctx, database.UpdateFilePathParams{
+	rows, err := s.queries.UpdateFilePath(ctx, database.UpdateFilePathParams{
 		ID:       fileID,
 		FilePath: path,
-		UserID: sql.NullInt32{
-			Int32: userID, Valid: true,
-		},
+		UserID:   sql.NullInt32{Int32: userID, Valid: true},
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("file not found or path not changed")
+	}
+	return nil
+}
+
+func (s *Service) MoveFile(
+	ctx context.Context,
+	fileID uuid.UUID,
+	oldPath, newPath string,
+	userID int32,
+) error {
+	if err := s.storage.MoveFile(oldPath, newPath); err != nil {
+		return fmt.Errorf("moving file on disk: %w", err)
+	}
+
+	if err := s.UpdateFilePath(ctx, fileID, newPath, userID); err != nil {
+		_ = s.storage.MoveFile(newPath, oldPath)
+		return fmt.Errorf("updating file path in DB: %w", err)
+	}
+
+	return nil
 }

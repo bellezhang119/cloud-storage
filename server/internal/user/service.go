@@ -2,15 +2,16 @@ package user
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 )
 
 type Queries interface {
-	UpdateUserPassword(ctx context.Context, params database.UpdateUserPasswordParams) error
-	UpdateUsedStorage(ctx context.Context, params database.UpdateUsedStorageParams) error
-	DeleteUser(ctx context.Context, id int32) error
+	UpdateUserPassword(ctx context.Context, arg database.UpdateUserPasswordParams) (int64, error)
+	UpdateUsedStorage(ctx context.Context, arg database.UpdateUsedStorageParams) (int64, error)
+	DeleteUser(ctx context.Context, id int32) (int64, error)
 	GetUserByID(ctx context.Context, id int32) (database.User, error)
 	GetUserByEmail(ctx context.Context, email string) (database.User, error)
 }
@@ -36,19 +37,41 @@ func (s *Service) UpdatePassword(ctx context.Context, userID int32, newPassword 
 	if err != nil {
 		return err
 	}
-	return s.queries.UpdateUserPassword(ctx, database.UpdateUserPasswordParams{
+
+	rowsAffected, err := s.queries.UpdateUserPassword(ctx, database.UpdateUserPasswordParams{
 		ID:           userID,
 		PasswordHash: hashed,
 	})
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no user found with id %d", userID)
+	}
+	return nil
 }
 
 func (s *Service) UpdateStorage(ctx context.Context, userID int32, newUsedStorage int64) error {
-	return s.queries.UpdateUsedStorage(ctx, database.UpdateUsedStorageParams{
+	rowsAffected, err := s.queries.UpdateUsedStorage(ctx, database.UpdateUsedStorageParams{
 		ID:          userID,
 		UsedStorage: newUsedStorage,
 	})
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no user found with id %d", userID)
+	}
+	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, userID int32) error {
-	return s.queries.DeleteUser(ctx, userID)
+	rowsAffected, err := s.queries.DeleteUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no user found with id %d", userID)
+	}
+	return nil
 }

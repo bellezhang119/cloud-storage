@@ -21,28 +21,33 @@ SELECT * FROM users WHERE id = $1;
 -- name: GetUserByVerificationToken :one
 SELECT * FROM users WHERE verification_token = $1;
 
--- name: MarkUserAsVerified :exec
+-- name: MarkUserAsVerified :execrows
 UPDATE users
-SET is_verified = TRUE, verification_token = NULL, verification_token_expiry = NULL, updated_at = CURRENT_TIMESTAMP
+SET is_verified = TRUE,
+    verification_token = NULL,
+    verification_token_expiry = NULL,
+    updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
 
--- name: UpdateVerificationToken :exec
+-- name: UpdateVerificationToken :execrows
 UPDATE users
-SET verification_token = $1, verification_token_expiry = $2, updated_at = CURRENT_TIMESTAMP
+SET verification_token = $1,
+    verification_token_expiry = $2,
+    updated_at = CURRENT_TIMESTAMP
 WHERE email = $3;
 
--- name: UpdateUserPassword :exec
+-- name: UpdateUserPassword :execrows
 UPDATE users
 SET password_hash = $2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
 
--- name: UpdateUsedStorage :exec
+-- name: UpdateUsedStorage :execrows
 UPDATE users
 SET used_storage = $2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
 
--- name: DeleteUser :exec
+-- name: DeleteUser :execrows
 DELETE FROM users
 WHERE id = $1;

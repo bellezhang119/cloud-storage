@@ -8,6 +8,6 @@ RETURNING *;
 -- name: GetFileShares :many
 SELECT * FROM file_shares WHERE file_id = $1;
 
--- name: RemoveFileShare :exec
+-- name: RemoveFileShare :execrows
 DELETE FROM file_shares
 WHERE file_id = $1 AND shared_with = $2;

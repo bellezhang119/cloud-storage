@@ -11,5 +11,6 @@ SELECT * FROM folders
 WHERE user_id = $1 AND parent_id = $2
 ORDER BY name;
 
--- name: DeleteFolder :exec
-DELETE FROM folders WHERE id = $1 AND user_id = $2;
+-- name: DeleteFolder :execrows
+DELETE FROM folders
+WHERE id = $1 AND user_id = $2;

@@ -15,11 +15,11 @@ var expireTime time.Duration = 30
 type Queries interface {
 	CreateUser(ctx context.Context, params database.CreateUserParams) (database.User, error)
 	GetUserByVerificationToken(ctx context.Context, token sql.NullString) (database.User, error)
-	MarkUserAsVerified(ctx context.Context, id int32) error
-	UpdateVerificationToken(ctx context.Context, params database.UpdateVerificationTokenParams) error
-	InsertRefreshToken(ctx context.Context, params database.InsertRefreshTokenParams) error
+	MarkUserAsVerified(ctx context.Context, id int32) (int64, error)
+	UpdateVerificationToken(ctx context.Context, arg database.UpdateVerificationTokenParams) (int64, error)
+	InsertRefreshToken(ctx context.Context, arg database.InsertRefreshTokenParams) (database.RefreshToken, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (database.GetRefreshTokenRow, error)
-	RevokeRefreshToken(ctx context.Context, hash string) error
+	RevokeRefreshToken(ctx context.Context, tokenHash string) (int64, error)
 }
 
 type UserGetter interface {
@@ -72,19 +72,26 @@ func (s *Service) VerifyUserByToken(ctx context.Context, token string) error {
 		String: token,
 		Valid:  true,
 	})
-
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("Invalid or expired token")
+			return errors.New("invalid or expired token")
 		}
 		return err
 	}
 
 	if !user.VerificationTokenExpiry.Valid || user.VerificationTokenExpiry.Time.Before(time.Now()) {
-		return errors.New("Token has expired")
+		return errors.New("token has expired")
 	}
 
-	return s.queries.MarkUserAsVerified(ctx, user.ID)
+	rowsAffected, err := s.queries.MarkUserAsVerified(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return errors.New("failed to verify user: no rows updated")
+	}
+
+	return nil
 }
 
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (database.User, error) {
@@ -98,7 +105,7 @@ func (s *Service) UpdateVerificationToken(ctx context.Context, user database.Use
 	}
 
 	expiry := time.Now().Add(24 * time.Hour)
-	err = s.queries.UpdateVerificationToken(ctx, database.UpdateVerificationTokenParams{
+	rowsAffected, err := s.queries.UpdateVerificationToken(ctx, database.UpdateVerificationTokenParams{
 		VerificationToken: sql.NullString{
 			String: verificationToken,
 			Valid:  true,
@@ -109,9 +116,11 @@ func (s *Service) UpdateVerificationToken(ctx context.Context, user database.Use
 		},
 		Email: user.Email,
 	})
-
 	if err != nil {
 		return "", err
+	}
+	if rowsAffected == 0 {
+		return "", errors.New("failed to update verification token: no rows updated")
 	}
 
 	return verificationToken, nil
@@ -130,25 +139,29 @@ func (s *Service) AuthenticateUser(ctx context.Context, email, password string) 
 	return user, nil
 }
 
-func (s *Service) GenerateJWTTokens(ctx context.Context, user database.User) (accessToken string, refreshToken string, err error) {
+func (s *Service) GenerateJWTTokens(
+	ctx context.Context,
+	user database.User,
+) (accessToken string, refreshToken string, err error) {
 	expiry := time.Now().Add(expireTime * 24 * time.Hour)
-	accessToken, refreshToken, err = util.GenerateJWTTokens(user.ID, user.Email, expiry)
 
+	accessToken, refreshToken, err = util.GenerateJWTTokens(user.ID, user.Email, expiry)
 	if err != nil {
 		return "", "", err
 	}
 
 	hashedRefreshToken := util.HashToken(refreshToken)
 
-	err = s.queries.InsertRefreshToken(ctx, database.InsertRefreshTokenParams{
+	tokenRow, err := s.queries.InsertRefreshToken(ctx, database.InsertRefreshTokenParams{
 		TokenHash: hashedRefreshToken,
 		UserID:    user.ID,
 		ExpiresAt: expiry,
 	})
-
 	if err != nil {
 		return "", "", err
 	}
+
+	_ = tokenRow
 
 	return accessToken, refreshToken, nil
 }
@@ -161,6 +174,7 @@ func (s *Service) RefreshJWTTokens(ctx context.Context, oldRefreshToken string) 
 
 	userID := int32(claims["user_id"].(float64))
 	hashedOld := util.HashToken(oldRefreshToken)
+
 	rt, err := s.queries.GetRefreshToken(ctx, hashedOld)
 	if err != nil || rt.Revoked {
 		return "", "", errors.New("refresh token revoked or not found")
@@ -178,19 +192,22 @@ func (s *Service) RefreshJWTTokens(ctx context.Context, oldRefreshToken string) 
 	}
 
 	newHashed := util.HashToken(refreshToken)
-	err = s.queries.InsertRefreshToken(ctx, database.InsertRefreshTokenParams{
+
+	_, err = s.queries.InsertRefreshToken(ctx, database.InsertRefreshTokenParams{
 		TokenHash: newHashed,
 		UserID:    user.ID,
 		ExpiresAt: expiry,
 	})
-
 	if err != nil {
 		return "", "", err
 	}
 
-	err = s.queries.RevokeRefreshToken(ctx, hashedOld)
+	rowsAffected, err := s.queries.RevokeRefreshToken(ctx, hashedOld)
 	if err != nil {
 		return "", "", err
+	}
+	if rowsAffected == 0 {
+		return "", "", errors.New("failed to revoke old refresh token: no rows updated")
 	}
 
 	return accessToken, refreshToken, nil

@@ -24,21 +24,19 @@ func (m *MockQueries) GetUserByID(ctx context.Context, userID int32) (database.U
 	return args.Get(0).(database.User), args.Error(1)
 }
 
-// Updated to accept struct
-func (m *MockQueries) UpdateUserPassword(ctx context.Context, params database.UpdateUserPasswordParams) error {
+func (m *MockQueries) UpdateUserPassword(ctx context.Context, params database.UpdateUserPasswordParams) (int64, error) {
 	args := m.Called(ctx, params)
-	return args.Error(0)
+	return args.Get(0).(int64), args.Error(1)
 }
 
-// Updated to accept struct
-func (m *MockQueries) UpdateUsedStorage(ctx context.Context, params database.UpdateUsedStorageParams) error {
+func (m *MockQueries) UpdateUsedStorage(ctx context.Context, params database.UpdateUsedStorageParams) (int64, error) {
 	args := m.Called(ctx, params)
-	return args.Error(0)
+	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockQueries) DeleteUser(ctx context.Context, userID int32) error {
+func (m *MockQueries) DeleteUser(ctx context.Context, userID int32) (int64, error) {
 	args := m.Called(ctx, userID)
-	return args.Error(0)
+	return args.Get(0).(int64), args.Error(1)
 }
 
 func TestUpdatePassword(t *testing.T) {
@@ -48,10 +46,9 @@ func TestUpdatePassword(t *testing.T) {
 	userID := int32(1)
 	newPassword := "newpassword"
 
-	// Since UpdatePassword hashes internally, we capture the struct using mock.MatchedBy
 	mockQ.On("UpdateUserPassword", ctx, mock.MatchedBy(func(params database.UpdateUserPasswordParams) bool {
 		return params.ID == userID && params.PasswordHash != ""
-	})).Return(nil)
+	})).Return(int64(1), nil)
 
 	err := svc.UpdatePassword(ctx, userID, newPassword)
 	assert.NoError(t, err)
@@ -68,7 +65,7 @@ func TestUpdateUsedStorage(t *testing.T) {
 	mockQ.On("UpdateUsedStorage", ctx, database.UpdateUsedStorageParams{
 		ID:          userID,
 		UsedStorage: newStorage,
-	}).Return(nil)
+	}).Return(int64(1), nil)
 
 	err := svc.UpdateStorage(ctx, userID, newStorage)
 	assert.NoError(t, err)
@@ -81,7 +78,7 @@ func TestDeleteUser(t *testing.T) {
 	ctx := context.Background()
 	userID := int32(1)
 
-	mockQ.On("DeleteUser", ctx, userID).Return(nil)
+	mockQ.On("DeleteUser", ctx, userID).Return(int64(1), nil)
 
 	err := svc.Delete(ctx, userID)
 	assert.NoError(t, err)
