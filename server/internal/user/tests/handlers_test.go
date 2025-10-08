@@ -28,17 +28,17 @@ func (m *MockService) GetUserByEmail(ctx context.Context, email string) (databas
 	return args.Get(0).(database.User), args.Error(1)
 }
 
-func (m *MockService) UpdatePassword(ctx context.Context, userID int32, newPassword string) error {
+func (m *MockService) UpdateUserPassword(ctx context.Context, userID int32, newPassword string) error {
 	args := m.Called(ctx, userID, newPassword)
 	return args.Error(0)
 }
 
-func (m *MockService) UpdateStorage(ctx context.Context, userID int32, newUsedStorage int64) error {
+func (m *MockService) UpdateUsedStorage(ctx context.Context, userID int32, newUsedStorage int64) error {
 	args := m.Called(ctx, userID, newUsedStorage)
 	return args.Error(0)
 }
 
-func (m *MockService) Delete(ctx context.Context, userID int32) error {
+func (m *MockService) DeleteUser(ctx context.Context, userID int32) error {
 	args := m.Called(ctx, userID)
 	return args.Error(0)
 }

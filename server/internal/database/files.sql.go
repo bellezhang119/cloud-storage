@@ -15,7 +15,7 @@ import (
 const createFile = `-- name: CreateFile :one
 INSERT INTO files (folder_id, user_id, name, file_path, size_bytes, mime_type)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, folder_id, user_id, name, file_path, size_bytes, mime_type, is_trashed, created_at, updated_at, deleted_at
+RETURNING id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at
 `
 
 type CreateFileParams struct {
@@ -45,16 +45,32 @@ func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) (File, e
 		&i.FilePath,
 		&i.SizeBytes,
 		&i.MimeType,
-		&i.IsTrashed,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.DeletedAt,
 	)
 	return i, err
 }
 
+const deleteFile = `-- name: DeleteFile :execrows
+DELETE FROM files
+WHERE id = $1 AND user_id = $2
+`
+
+type DeleteFileParams struct {
+	ID     uuid.UUID
+	UserID sql.NullInt32
+}
+
+func (q *Queries) DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteFile, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getFileByID = `-- name: GetFileByID :one
-SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, is_trashed, created_at, updated_at, deleted_at FROM files WHERE id = $1
+SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files WHERE id = $1
 `
 
 func (q *Queries) GetFileByID(ctx context.Context, id uuid.UUID) (File, error) {
@@ -68,17 +84,15 @@ func (q *Queries) GetFileByID(ctx context.Context, id uuid.UUID) (File, error) {
 		&i.FilePath,
 		&i.SizeBytes,
 		&i.MimeType,
-		&i.IsTrashed,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getFileByNameInFolder = `-- name: GetFileByNameInFolder :one
-SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, is_trashed, created_at, updated_at, deleted_at FROM files
-WHERE folder_id = $1 AND name = $2 AND is_trashed = FALSE
+SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files
+WHERE folder_id = $1 AND name = $2
 `
 
 type GetFileByNameInFolderParams struct {
@@ -97,19 +111,16 @@ func (q *Queries) GetFileByNameInFolder(ctx context.Context, arg GetFileByNameIn
 		&i.FilePath,
 		&i.SizeBytes,
 		&i.MimeType,
-		&i.IsTrashed,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const listFilesInFolder = `-- name: ListFilesInFolder :many
-SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, is_trashed, created_at, updated_at, deleted_at
+SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at
 FROM files
 WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL))
-  AND is_trashed = FALSE
 ORDER BY name
 `
 
@@ -130,10 +141,8 @@ func (q *Queries) ListFilesInFolder(ctx context.Context, folderID uuid.NullUUID)
 			&i.FilePath,
 			&i.SizeBytes,
 			&i.MimeType,
-			&i.IsTrashed,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -148,60 +157,83 @@ func (q *Queries) ListFilesInFolder(ctx context.Context, folderID uuid.NullUUID)
 	return items, nil
 }
 
-const permanentlyDeleteFile = `-- name: PermanentlyDeleteFile :execrows
-DELETE FROM files
-WHERE id = $1 AND user_id = $2
+const listFilesRecursive = `-- name: ListFilesRecursive :many
+WITH RECURSIVE subfolders AS (
+    SELECT folders.id AS sf_folder_id
+    FROM folders
+    WHERE folders.id = $1 AND folders.user_id = $2
+
+    UNION ALL
+
+    SELECT f.id AS sf_folder_id
+    FROM folders f
+    INNER JOIN subfolders s ON f.parent_id = s.sf_folder_id
+    WHERE f.user_id = $2
+)
+SELECT 
+    f.id AS file_id,
+    f.folder_id AS folder_id,
+    f.user_id AS user_id,
+    f.name AS name,
+    f.file_path AS file_path,
+    f.size_bytes AS size_bytes,
+    f.mime_type AS mime_type,
+    f.created_at AS created_at,
+    f.updated_at AS updated_at
+FROM files f
+INNER JOIN subfolders sf ON f.folder_id = sf.sf_folder_id
+WHERE f.user_id = $2
+ORDER BY f.name
 `
 
-type PermanentlyDeleteFileParams struct {
+type ListFilesRecursiveParams struct {
 	ID     uuid.UUID
 	UserID sql.NullInt32
 }
 
-func (q *Queries) PermanentlyDeleteFile(ctx context.Context, arg PermanentlyDeleteFileParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, permanentlyDeleteFile, arg.ID, arg.UserID)
+type ListFilesRecursiveRow struct {
+	FileID    uuid.UUID
+	FolderID  uuid.NullUUID
+	UserID    sql.NullInt32
+	Name      string
+	FilePath  string
+	SizeBytes int64
+	MimeType  sql.NullString
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+}
+
+func (q *Queries) ListFilesRecursive(ctx context.Context, arg ListFilesRecursiveParams) ([]ListFilesRecursiveRow, error) {
+	rows, err := q.db.QueryContext(ctx, listFilesRecursive, arg.ID, arg.UserID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected()
-}
-
-const restoreFile = `-- name: RestoreFile :execrows
-UPDATE files
-SET is_trashed = FALSE, deleted_at = NULL
-WHERE id = $1 AND user_id = $2
-`
-
-type RestoreFileParams struct {
-	ID     uuid.UUID
-	UserID sql.NullInt32
-}
-
-func (q *Queries) RestoreFile(ctx context.Context, arg RestoreFileParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, restoreFile, arg.ID, arg.UserID)
-	if err != nil {
-		return 0, err
+	defer rows.Close()
+	var items []ListFilesRecursiveRow
+	for rows.Next() {
+		var i ListFilesRecursiveRow
+		if err := rows.Scan(
+			&i.FileID,
+			&i.FolderID,
+			&i.UserID,
+			&i.Name,
+			&i.FilePath,
+			&i.SizeBytes,
+			&i.MimeType,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
-	return result.RowsAffected()
-}
-
-const trashFile = `-- name: TrashFile :execrows
-UPDATE files
-SET is_trashed = TRUE, deleted_at = now()
-WHERE id = $1 AND user_id = $2
-`
-
-type TrashFileParams struct {
-	ID     uuid.UUID
-	UserID sql.NullInt32
-}
-
-func (q *Queries) TrashFile(ctx context.Context, arg TrashFileParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, trashFile, arg.ID, arg.UserID)
-	if err != nil {
-		return 0, err
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
-	return result.RowsAffected()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateFileMetadata = `-- name: UpdateFileMetadata :execrows

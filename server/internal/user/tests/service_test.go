@@ -50,7 +50,7 @@ func TestUpdatePassword(t *testing.T) {
 		return params.ID == userID && params.PasswordHash != ""
 	})).Return(int64(1), nil)
 
-	err := svc.UpdatePassword(ctx, userID, newPassword)
+	err := svc.UpdateUserPassword(ctx, userID, newPassword)
 	assert.NoError(t, err)
 	mockQ.AssertExpectations(t)
 }
@@ -67,7 +67,7 @@ func TestUpdateUsedStorage(t *testing.T) {
 		UsedStorage: newStorage,
 	}).Return(int64(1), nil)
 
-	err := svc.UpdateStorage(ctx, userID, newStorage)
+	err := svc.UpdateUsedStorage(ctx, userID, newStorage)
 	assert.NoError(t, err)
 	mockQ.AssertExpectations(t)
 }
@@ -80,7 +80,7 @@ func TestDeleteUser(t *testing.T) {
 
 	mockQ.On("DeleteUser", ctx, userID).Return(int64(1), nil)
 
-	err := svc.Delete(ctx, userID)
+	err := svc.DeleteUser(ctx, userID)
 	assert.NoError(t, err)
 	mockQ.AssertExpectations(t)
 }

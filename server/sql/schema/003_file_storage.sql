@@ -17,13 +17,11 @@ CREATE TABLE files (
     folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    file_path TEXT NOT NULL,                 -- path to the stored file
+    file_path TEXT NOT NULL,               
     size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
     mime_type TEXT,
-    is_trashed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT now(),
     updated_at TIMESTAMP DEFAULT now(),
-    deleted_at TIMESTAMP,
     UNIQUE(folder_id, name)
 );
 
@@ -48,8 +46,7 @@ CREATE TABLE file_activity (
 );
 
 -- +goose Down
-
-DROP TABLE file_activity;
-DROP TABLE file_shares;
-DROP TABLE files;
-DROP TABLE folders;
+DROP TABLE IF EXISTS file_activity;
+DROP TABLE IF EXISTS file_shares;
+DROP TABLE IF EXISTS files;
+DROP TABLE IF EXISTS folders;

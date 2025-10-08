@@ -13,9 +13,9 @@ import (
 type ServiceInterface interface {
 	GetUserByID(ctx context.Context, id int32) (database.User, error)
 	GetUserByEmail(ctx context.Context, email string) (database.User, error)
-	UpdatePassword(ctx context.Context, userID int32, newPassword string) error
-	UpdateStorage(ctx context.Context, userID int32, newUsedStorage int64) error
-	Delete(ctx context.Context, userID int32) error
+	UpdateUserPassword(ctx context.Context, userID int32, newPassword string) error
+	UpdateUsedStorage(ctx context.Context, userID int32, newUsedStorage int64) error
+	DeleteUser(ctx context.Context, userID int32) error
 }
 
 type UpdatePasswordRequest struct {
@@ -85,7 +85,7 @@ func UpdatePasswordHandler(service ServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		if err := service.UpdatePassword(r.Context(), int32(id), req.NewPassword); err != nil {
+		if err := service.UpdateUserPassword(r.Context(), int32(id), req.NewPassword); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -110,7 +110,7 @@ func UpdateStorageHandler(service ServiceInterface) http.HandlerFunc {
 			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
-		if err := service.UpdateStorage(r.Context(), int32(id), req.NewUsedBytes); err != nil {
+		if err := service.UpdateUsedStorage(r.Context(), int32(id), req.NewUsedBytes); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -130,7 +130,7 @@ func DeleteUserHandler(service ServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		if err := service.Delete(r.Context(), int32(id)); err != nil {
+		if err := service.DeleteUser(r.Context(), int32(id)); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

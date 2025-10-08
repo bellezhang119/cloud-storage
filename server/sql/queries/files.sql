@@ -8,26 +8,43 @@ SELECT * FROM files WHERE id = $1;
 
 -- name: GetFileByNameInFolder :one
 SELECT * FROM files
-WHERE folder_id = $1 AND name = $2 AND is_trashed = FALSE;
+WHERE folder_id = $1 AND name = $2;
 
 -- name: ListFilesInFolder :many
 SELECT *
 FROM files
 WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL))
-  AND is_trashed = FALSE
 ORDER BY name;
 
--- name: TrashFile :execrows
-UPDATE files
-SET is_trashed = TRUE, deleted_at = now()
-WHERE id = $1 AND user_id = $2;
+-- name: ListFilesRecursive :many
+WITH RECURSIVE subfolders AS (
+    SELECT folders.id AS sf_folder_id
+    FROM folders
+    WHERE folders.id = $1 AND folders.user_id = $2
 
--- name: RestoreFile :execrows
-UPDATE files
-SET is_trashed = FALSE, deleted_at = NULL
-WHERE id = $1 AND user_id = $2;
+    UNION ALL
 
--- name: PermanentlyDeleteFile :execrows
+    SELECT f.id AS sf_folder_id
+    FROM folders f
+    INNER JOIN subfolders s ON f.parent_id = s.sf_folder_id
+    WHERE f.user_id = $2
+)
+SELECT 
+    f.id AS file_id,
+    f.folder_id AS folder_id,
+    f.user_id AS user_id,
+    f.name AS name,
+    f.file_path AS file_path,
+    f.size_bytes AS size_bytes,
+    f.mime_type AS mime_type,
+    f.created_at AS created_at,
+    f.updated_at AS updated_at
+FROM files f
+INNER JOIN subfolders sf ON f.folder_id = sf.sf_folder_id
+WHERE f.user_id = $2
+ORDER BY f.name;
+
+-- name: DeleteFile :execrows
 DELETE FROM files
 WHERE id = $1 AND user_id = $2;
 

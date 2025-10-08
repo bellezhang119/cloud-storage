@@ -20,10 +20,8 @@ type File struct {
 	FilePath  string
 	SizeBytes int64
 	MimeType  sql.NullString
-	IsTrashed sql.NullBool
 	CreatedAt sql.NullTime
 	UpdatedAt sql.NullTime
-	DeletedAt sql.NullTime
 }
 
 type FileActivity struct {

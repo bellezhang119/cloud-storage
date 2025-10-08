@@ -32,7 +32,7 @@ func (s *Service) GetUserByID(ctx context.Context, id int32) (database.User, err
 	return s.queries.GetUserByID(ctx, id)
 }
 
-func (s *Service) UpdatePassword(ctx context.Context, userID int32, newPassword string) error {
+func (s *Service) UpdateUserPassword(ctx context.Context, userID int32, newPassword string) error {
 	hashed, err := util.HashPassword(newPassword)
 	if err != nil {
 		return err
@@ -51,7 +51,7 @@ func (s *Service) UpdatePassword(ctx context.Context, userID int32, newPassword 
 	return nil
 }
 
-func (s *Service) UpdateStorage(ctx context.Context, userID int32, newUsedStorage int64) error {
+func (s *Service) UpdateUsedStorage(ctx context.Context, userID int32, newUsedStorage int64) error {
 	rowsAffected, err := s.queries.UpdateUsedStorage(ctx, database.UpdateUsedStorageParams{
 		ID:          userID,
 		UsedStorage: newUsedStorage,
@@ -65,7 +65,7 @@ func (s *Service) UpdateStorage(ctx context.Context, userID int32, newUsedStorag
 	return nil
 }
 
-func (s *Service) Delete(ctx context.Context, userID int32) error {
+func (s *Service) DeleteUser(ctx context.Context, userID int32) error {
 	rowsAffected, err := s.queries.DeleteUser(ctx, userID)
 	if err != nil {
 		return err
