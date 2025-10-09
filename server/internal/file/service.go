@@ -18,7 +18,7 @@ type Queries interface {
 	CreateFile(ctx context.Context, arg database.CreateFileParams) (database.File, error)
 	GetFileByID(ctx context.Context, id uuid.UUID) (database.File, error)
 	GetFileByNameInFolder(ctx context.Context, arg database.GetFileByNameInFolderParams) (database.File, error)
-	ListFilesInFolder(ctx context.Context, folderID uuid.NullUUID) ([]database.File, error)
+	ListFilesInFolder(ctx context.Context, arg database.ListFilesInFolderParams) ([]database.File, error)
 	DeleteFile(ctx context.Context, arg database.DeleteFileParams) (int64, error)
 	ListFilesRecursive(ctx context.Context, arg database.ListFilesRecursiveParams) ([]database.ListFilesRecursiveRow, error)
 	UpdateFileMetadata(ctx context.Context, arg database.UpdateFileMetadataParams) (int64, error)
@@ -61,20 +61,25 @@ func (s *Service) SaveFile(
 
 	uID := sql.NullInt32{Int32: userID, Valid: true}
 
-	// 1. Build folder path
-	folderPath := ""
+	// 1. Build folder path relative to user root
+	var folderPath string
 	var fID uuid.NullUUID
 	if folderID != nil {
 		f, err := s.folderService.GetFolderByID(ctx, *folderID)
 		if err != nil {
 			return database.File{}, fmt.Errorf("fetching folder: %w", err)
 		}
-		folderPath = s.buildFolderPath(ctx, f)
+		folderPath = s.buildFolderPath(ctx, f) // relative to user root
 		fID = uuid.NullUUID{UUID: *folderID, Valid: true}
 	}
 
-	// 2. Prepare file path
-	filePath := filepath.Join("uploads", fmt.Sprintf("user_%d", userID), folderPath, name)
+	// 2. Prepare relative file path for storage
+	var filePath string
+	if folderPath != "" {
+		filePath = filepath.Join(folderPath, name)
+	} else {
+		filePath = name
+	}
 
 	// 3. Check if file already exists
 	existingFile, err := s.queries.GetFileByNameInFolder(ctx, database.GetFileByNameInFolderParams{
@@ -100,7 +105,7 @@ func (s *Service) SaveFile(
 		FolderID:  fID,
 		UserID:    uID,
 		Name:      name,
-		FilePath:  filePath,
+		FilePath:  filePath, // store relative path
 		SizeBytes: sizeBytes,
 		MimeType:  mType,
 	})
@@ -108,7 +113,7 @@ func (s *Service) SaveFile(
 		return database.File{}, fmt.Errorf("creating file record: %w", err)
 	}
 
-	// 6. Save content to storage
+	// 6. Save content to storage (LocalStorage will prepend user folder)
 	if err := s.storage.SaveFile(userID, filePath, content); err != nil {
 		// rollback DB if storage fails
 		_, _ = s.queries.DeleteFile(ctx, database.DeleteFileParams{
@@ -139,15 +144,20 @@ func (s *Service) GetFileByNameInFolder(ctx context.Context, folderID uuid.UUID,
 	return file, nil
 }
 
-func (s *Service) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([]database.File, error) {
-	var folderParam uuid.NullUUID
+func (s *Service) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID, userID int32) ([]database.File, error) {
+	var fID uuid.NullUUID
 	if folderID != nil {
-		folderParam = uuid.NullUUID{UUID: *folderID, Valid: true}
+		fID = uuid.NullUUID{UUID: *folderID, Valid: true}
 	}
-	files, err := s.queries.ListFilesInFolder(ctx, folderParam)
+
+	files, err := s.queries.ListFilesInFolder(ctx, database.ListFilesInFolderParams{
+		FolderID: fID,
+		UserID:   sql.NullInt32{Int32: userID, Valid: true},
+	})
 	if err != nil {
 		return nil, err
 	}
+
 	return files, nil
 }
 
@@ -165,10 +175,41 @@ func (s *Service) ListFilesRecursive(ctx context.Context, folderID uuid.UUID, us
 	return rows, nil
 }
 
-func (s *Service) DeleteFile(ctx context.Context, fileID uuid.UUID, userID int32, filePath string) error {
+func (s *Service) GetFileForDownload(ctx context.Context, fileID uuid.UUID, userID int32) (database.File, io.ReadCloser, error) {
+	// 1. Look up file in DB
+	fileMeta, err := s.queries.GetFileByID(ctx, fileID)
+	if err != nil {
+		return database.File{}, nil, fmt.Errorf("fetching file metadata: %w", err)
+	}
+
+	// 2. Authorization check (make sure the user owns it)
+	if fileMeta.UserID.Int32 != userID {
+		return database.File{}, nil, fmt.Errorf("unauthorized access")
+	}
+
+	// 3. Read file from storage
+	content, err := s.storage.ReadFile(userID, fileMeta.FilePath)
+	if err != nil {
+		return database.File{}, nil, fmt.Errorf("reading file: %w", err)
+	}
+
+	return fileMeta, content, nil
+}
+
+func (s *Service) DeleteFile(ctx context.Context, fileID uuid.UUID, userID int32) error {
 	uID := sql.NullInt32{Int32: userID, Valid: true}
 
-	// 1. Delete DB record first
+	// 1. Fetch file metadata first
+	file, err := s.queries.GetFileByID(ctx, fileID)
+	if err != nil {
+		return fmt.Errorf("fetching file metadata: %w", err)
+	}
+
+	if file.UserID.Int32 != userID {
+		return fmt.Errorf("unauthorized")
+	}
+
+	// 2. Delete DB record
 	rows, err := s.queries.DeleteFile(ctx, database.DeleteFileParams{
 		ID:     fileID,
 		UserID: uID,
@@ -180,9 +221,9 @@ func (s *Service) DeleteFile(ctx context.Context, fileID uuid.UUID, userID int32
 		return fmt.Errorf("file not found or already deleted")
 	}
 
-	// 2. Then delete from storage
-	if err := s.storage.DeleteFile(userID, filePath); err != nil {
-		// DB record gone, but storage failed — just log (no rollback possible)
+	// 3. Delete file from storage
+	if err := s.storage.DeleteFile(userID, file.FilePath); err != nil {
+		// DB record gone, storage deletion failed
 		return fmt.Errorf("file removed from DB but failed to delete from storage: %w", err)
 	}
 
@@ -247,17 +288,6 @@ func (s *Service) MoveFile(ctx context.Context, file database.File, destFolderID
 	return nil
 }
 
-func (s *Service) buildFolderPath(ctx context.Context, folder database.Folder) string {
-	if folder.ParentID.Valid {
-		parent, err := s.folderService.GetFolderByID(ctx, folder.ParentID.UUID)
-		if err != nil {
-			return folder.Name
-		}
-		return filepath.Join(s.buildFolderPath(ctx, parent), folder.Name)
-	}
-	return folder.Name
-}
-
 func (s *Service) RenameFile(ctx context.Context, file database.File, newName string, userID int32) error {
 	if newName == "" {
 		return errors.New("new file name is required")
@@ -298,4 +328,15 @@ func (s *Service) RenameFile(ctx context.Context, file database.File, newName st
 	}
 
 	return nil
+}
+
+func (s *Service) buildFolderPath(ctx context.Context, folder database.Folder) string {
+	if folder.ParentID.Valid {
+		parent, err := s.folderService.GetFolderByID(ctx, folder.ParentID.UUID)
+		if err != nil {
+			return folder.Name
+		}
+		return filepath.Join(s.buildFolderPath(ctx, parent), folder.Name)
+	}
+	return folder.Name
 }

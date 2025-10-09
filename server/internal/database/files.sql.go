@@ -120,12 +120,17 @@ func (q *Queries) GetFileByNameInFolder(ctx context.Context, arg GetFileByNameIn
 const listFilesInFolder = `-- name: ListFilesInFolder :many
 SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at
 FROM files
-WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL))
+WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL)) AND user_id = $2
 ORDER BY name
 `
 
-func (q *Queries) ListFilesInFolder(ctx context.Context, folderID uuid.NullUUID) ([]File, error) {
-	rows, err := q.db.QueryContext(ctx, listFilesInFolder, folderID)
+type ListFilesInFolderParams struct {
+	FolderID uuid.NullUUID
+	UserID   sql.NullInt32
+}
+
+func (q *Queries) ListFilesInFolder(ctx context.Context, arg ListFilesInFolderParams) ([]File, error) {
+	rows, err := q.db.QueryContext(ctx, listFilesInFolder, arg.FolderID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}

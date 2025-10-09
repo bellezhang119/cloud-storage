@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"archive/zip"
 	"fmt"
 	"io"
 	"os"
@@ -15,18 +16,17 @@ type Storage interface {
 	CreateDirectory(userID int32, path string) error
 	DeleteDirectory(userID int32, path string) error
 	MoveFile(userID int32, oldPath, newPath string) error
-	MoveToTrash(userID int32, path string) error
+	MoveDirectory(userID int32, oldPath, newPath string) error
+	ZipFolder(userID int32, folderPath string, w io.Writer) error
 }
 
 type LocalStorage struct {
 	BasePath string
-	TrashDir string
 }
 
 func NewLocalStorage(basePath string) *LocalStorage {
 	return &LocalStorage{
 		BasePath: basePath,
-		TrashDir: ".trash",
 	}
 }
 
@@ -100,6 +100,63 @@ func (s *LocalStorage) DeleteDirectory(userID int32, path string) error {
 	return nil
 }
 
+func (s *LocalStorage) ZipFolder(userID int32, folderPath string, w io.Writer) error {
+	rootPath := filepath.Join(s.BasePath, strconv.Itoa(int(userID)), folderPath)
+
+	info, err := os.Stat(rootPath)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("folder does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a folder")
+	}
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories themselves (zip only files)
+		if info.IsDir() {
+			return nil
+		}
+
+		// Create relative path inside the zip
+		relPath, err := filepath.Rel(filepath.Dir(rootPath), path)
+		if err != nil {
+			return err
+		}
+
+		zipPath := filepath.ToSlash(relPath)
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		entry, err := zipWriter.Create(zipPath)
+		if err != nil {
+			return err
+		}
+
+		if _, err := io.Copy(entry, file); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("zipping folder: %w", err)
+	}
+
+	return nil
+}
+
 // MoveFile moves a file; supports cross-filesystem moves
 func (s *LocalStorage) MoveFile(userID int32, oldPath, newPath string) error {
 	oldFull := s.fullPath(userID, oldPath)
@@ -136,4 +193,45 @@ func (s *LocalStorage) MoveFile(userID int32, oldPath, newPath string) error {
 	}
 
 	return nil
+}
+
+func (s *LocalStorage) MoveDirectory(userID int32, oldPath, newPath string) error {
+	oldFull := s.fullPath(userID, oldPath)
+	newFull := s.fullPath(userID, newPath)
+
+	if err := os.MkdirAll(newFull, 0755); err != nil {
+		return fmt.Errorf("creating new directory %s: %w", newFull, err)
+	}
+
+	err := filepath.Walk(oldFull, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(oldFull, path)
+		if err != nil {
+			return err
+		}
+		dest := filepath.Join(newFull, rel)
+		if info.IsDir() {
+			return os.MkdirAll(dest, info.Mode())
+		}
+		srcFile, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer srcFile.Close()
+		dstFile, err := os.Create(dest)
+		if err != nil {
+			return err
+		}
+		defer dstFile.Close()
+		if _, err := io.Copy(dstFile, srcFile); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(oldFull)
 }

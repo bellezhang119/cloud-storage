@@ -13,7 +13,7 @@ WHERE folder_id = $1 AND name = $2;
 -- name: ListFilesInFolder :many
 SELECT *
 FROM files
-WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL))
+WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL)) AND user_id = $2
 ORDER BY name;
 
 -- name: ListFilesRecursive :many

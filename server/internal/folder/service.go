@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
@@ -76,9 +77,35 @@ func (s *Service) GetFolderByID(ctx context.Context, id uuid.UUID) (database.Fol
 
 func (s *Service) ListFoldersByParent(ctx context.Context, userID int32, parentID uuid.NullUUID) ([]database.Folder, error) {
 	return s.queries.ListFoldersByParent(ctx, database.ListFoldersByParentParams{
-		UserID:   sql.NullInt32{Int32: userID, Valid: true},
 		ParentID: parentID,
+		UserID:   sql.NullInt32{Int32: userID, Valid: true},
 	})
+}
+
+func (s *Service) GetZippedFolderForDownload(ctx context.Context, folderID uuid.UUID, userID int32, w io.Writer) (database.Folder, error) {
+	// 1. Look up folder in DB
+	folderMeta, err := s.queries.GetFolderByID(ctx, folderID)
+	if err != nil {
+		return database.Folder{}, fmt.Errorf("fetching folder metadata: %w", err)
+	}
+
+	// 2. Authorization check
+	if folderMeta.UserID.Int32 != userID {
+		return database.Folder{}, fmt.Errorf("unauthorized access")
+	}
+
+	// 3. Build full folder path
+	folderPath, err := s.buildFolderPath(ctx, folderID)
+	if err != nil {
+		return database.Folder{}, fmt.Errorf("building folder path: %w", err)
+	}
+
+	// 4. Stream zip into provided writer
+	if err := s.storage.ZipFolder(userID, folderPath, w); err != nil {
+		return database.Folder{}, fmt.Errorf("zipping folder: %w", err)
+	}
+
+	return folderMeta, nil
 }
 
 func (s *Service) buildFolderPath(ctx context.Context, folderID uuid.UUID) (string, error) {
@@ -210,7 +237,7 @@ func (s *Service) RenameFolder(ctx context.Context, folderID uuid.UUID, newName 
 	}
 
 	// 4. Rename folder on disk
-	if err := s.storage.MoveFile(userID, oldPath, newPath); err != nil {
+	if err := s.storage.MoveDirectory(userID, oldPath, newPath); err != nil {
 		// rollback DB if storage rename fails
 		_, _ = s.queries.UpdateFolderMetadata(ctx, database.UpdateFolderMetadataParams{
 			ID:     folderID,
@@ -218,6 +245,23 @@ func (s *Service) RenameFolder(ctx context.Context, folderID uuid.UUID, newName 
 			UserID: uID,
 		})
 		return fmt.Errorf("renaming folder on disk: %w", err)
+	}
+
+	// 5. Update all child files’ paths in DB
+	files, err := s.fileService.ListFilesRecursive(ctx, folderID, userID)
+	if err != nil {
+		return fmt.Errorf("listing files in folder: %w", err)
+	}
+
+	for _, f := range files {
+		relPath, err := filepath.Rel(oldPath, f.FilePath)
+		if err != nil {
+			return fmt.Errorf("calculating relative path: %w", err)
+		}
+		newFilePath := filepath.Join(newPath, relPath)
+		if err := s.fileService.UpdateFilePath(ctx, f.FileID, newFilePath, userID); err != nil {
+			return fmt.Errorf("updating file path in DB: %w", err)
+		}
 	}
 
 	return nil
@@ -267,7 +311,7 @@ func (s *Service) MoveFolder(ctx context.Context, folderID uuid.UUID, newParentI
 	}
 
 	// 4. Move folder on disk (including all children)
-	if err := s.storage.MoveFile(userID, oldPath, newPath); err != nil {
+	if err := s.storage.MoveDirectory(userID, oldPath, newPath); err != nil {
 		// rollback DB
 		_, _ = s.queries.UpdateFolderParent(ctx, database.UpdateFolderParentParams{
 			ID:       folderID,

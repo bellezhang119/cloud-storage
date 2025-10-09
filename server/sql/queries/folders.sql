@@ -9,8 +9,8 @@ SELECT * FROM folders WHERE id = $1;
 -- name: ListFoldersByParent :many
 SELECT *
 FROM folders
-WHERE user_id = $1
-  AND parent_id = $2
+WHERE parent_id = $1
+  AND user_id = $2
 ORDER BY name;
 
 -- name: DeleteFolder :execrows

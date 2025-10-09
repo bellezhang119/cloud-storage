@@ -77,18 +77,18 @@ func (q *Queries) GetFolderByID(ctx context.Context, id uuid.UUID) (Folder, erro
 const listFoldersByParent = `-- name: ListFoldersByParent :many
 SELECT id, user_id, name, parent_id, created_at, updated_at
 FROM folders
-WHERE user_id = $1
-  AND parent_id = $2
+WHERE parent_id = $1
+  AND user_id = $2
 ORDER BY name
 `
 
 type ListFoldersByParentParams struct {
-	UserID   sql.NullInt32
 	ParentID uuid.NullUUID
+	UserID   sql.NullInt32
 }
 
 func (q *Queries) ListFoldersByParent(ctx context.Context, arg ListFoldersByParentParams) ([]Folder, error) {
-	rows, err := q.db.QueryContext(ctx, listFoldersByParent, arg.UserID, arg.ParentID)
+	rows, err := q.db.QueryContext(ctx, listFoldersByParent, arg.ParentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
