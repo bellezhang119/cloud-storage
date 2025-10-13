@@ -14,8 +14,8 @@ CREATE TABLE folders (
 -- Files table
 CREATE TABLE files (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     file_path TEXT NOT NULL,               
     size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),

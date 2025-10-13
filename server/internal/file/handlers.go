@@ -45,7 +45,6 @@ type ServiceInterface interface {
 	RenameFile(ctx context.Context, file database.File, newName string, userID int32) error
 }
 
-// UploadFileHandler handles uploading a file
 func UploadFileHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := strconv.Atoi(r.Header.Get("X-User-ID"))
@@ -72,7 +71,49 @@ func UploadFileHandler(service ServiceInterface) http.HandlerFunc {
 		}
 
 		mimeType := r.Header.Get("Content-Type")
-		fileMeta, err := service.SaveFile(r.Context(), folderID, int32(userID), name, r.ContentLength, mimeType, r.Body)
+
+		// Create a pipe to stream chunks into service.SaveFile
+		pr, pw := io.Pipe()
+
+		// Launch a goroutine to read from the request in chunks and write to the pipe
+		go func() {
+			defer pw.Close()
+
+			const chunkSize = 64 * 1024 // 64 KB
+			buf := make([]byte, chunkSize)
+			var total int64
+
+			for {
+				n, err := r.Body.Read(buf)
+				if n > 0 {
+					total += int64(n)
+					if _, writeErr := pw.Write(buf[:n]); writeErr != nil {
+						fmt.Printf("Upload pipe write error: %v\n", writeErr)
+						return
+					}
+				}
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					fmt.Printf("Upload read error: %v\n", err)
+					return
+				}
+			}
+
+			fmt.Printf("✅ Finished reading upload stream: %d bytes from user %d\n", total, userID)
+		}()
+
+		// Now pass the pipe reader to the service
+		fileMeta, err := service.SaveFile(
+			r.Context(),
+			folderID,
+			int32(userID),
+			name,
+			r.ContentLength,
+			mimeType,
+			pr, // stream from our pipe
+		)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -82,7 +123,6 @@ func UploadFileHandler(service ServiceInterface) http.HandlerFunc {
 	}
 }
 
-// DownloadFileHandler handles downloading a file
 func DownloadFileHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := strconv.Atoi(r.Header.Get("X-User-ID"))
@@ -105,15 +145,44 @@ func DownloadFileHandler(service ServiceInterface) http.HandlerFunc {
 		}
 		defer reader.Close()
 
+		// Set headers before writing body
 		w.Header().Set("Content-Disposition", `attachment; filename="`+fileMeta.Name+`"`)
 		w.Header().Set("Content-Type", fileMeta.MimeType.String)
 		w.Header().Set("Content-Length", strconv.FormatInt(fileMeta.SizeBytes, 10))
 		w.WriteHeader(http.StatusOK)
 
-		if _, err := io.Copy(w, reader); err != nil {
-			// Log streaming error
-			fmt.Printf("Error streaming file: %v\n", err)
+		// Custom chunk size — can adjust as needed
+		const chunkSize = 64 * 1024 // 64 KB
+		buffer := make([]byte, chunkSize)
+
+		var totalSent int64
+		for {
+			n, readErr := reader.Read(buffer)
+			if n > 0 {
+				// Handle partial writes properly
+				written, writeErr := w.Write(buffer[:n])
+				if writeErr != nil {
+					fmt.Printf("Write error: %v\n", writeErr)
+					break
+				}
+				totalSent += int64(written)
+
+				// Optional: flush to client (important for large files or slow clients)
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
+				}
+			}
+
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				fmt.Printf("Read error: %v\n", readErr)
+				break
+			}
 		}
+
+		fmt.Printf("✅ Successfully streamed %d bytes for user %d\n", totalSent, userID)
 	}
 }
 

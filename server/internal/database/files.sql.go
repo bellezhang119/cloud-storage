@@ -15,7 +15,7 @@ import (
 const createFile = `-- name: CreateFile :one
 INSERT INTO files (folder_id, user_id, name, file_path, size_bytes, mime_type)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at
+RETURNING id, user_id, folder_id, name, file_path, size_bytes, mime_type, created_at, updated_at
 `
 
 type CreateFileParams struct {
@@ -39,8 +39,8 @@ func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) (File, e
 	var i File
 	err := row.Scan(
 		&i.ID,
-		&i.FolderID,
 		&i.UserID,
+		&i.FolderID,
 		&i.Name,
 		&i.FilePath,
 		&i.SizeBytes,
@@ -70,7 +70,7 @@ func (q *Queries) DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, 
 }
 
 const getFileByID = `-- name: GetFileByID :one
-SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files WHERE id = $1
+SELECT id, user_id, folder_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files WHERE id = $1
 `
 
 func (q *Queries) GetFileByID(ctx context.Context, id uuid.UUID) (File, error) {
@@ -78,8 +78,8 @@ func (q *Queries) GetFileByID(ctx context.Context, id uuid.UUID) (File, error) {
 	var i File
 	err := row.Scan(
 		&i.ID,
-		&i.FolderID,
 		&i.UserID,
+		&i.FolderID,
 		&i.Name,
 		&i.FilePath,
 		&i.SizeBytes,
@@ -91,7 +91,7 @@ func (q *Queries) GetFileByID(ctx context.Context, id uuid.UUID) (File, error) {
 }
 
 const getFileByNameInFolder = `-- name: GetFileByNameInFolder :one
-SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files
+SELECT id, user_id, folder_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files
 WHERE folder_id = $1 AND name = $2
 `
 
@@ -105,8 +105,8 @@ func (q *Queries) GetFileByNameInFolder(ctx context.Context, arg GetFileByNameIn
 	var i File
 	err := row.Scan(
 		&i.ID,
-		&i.FolderID,
 		&i.UserID,
+		&i.FolderID,
 		&i.Name,
 		&i.FilePath,
 		&i.SizeBytes,
@@ -118,19 +118,19 @@ func (q *Queries) GetFileByNameInFolder(ctx context.Context, arg GetFileByNameIn
 }
 
 const listFilesInFolder = `-- name: ListFilesInFolder :many
-SELECT id, folder_id, user_id, name, file_path, size_bytes, mime_type, created_at, updated_at
+SELECT id, user_id, folder_id, name, file_path, size_bytes, mime_type, created_at, updated_at
 FROM files
-WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL)) AND user_id = $2
+WHERE (folder_id = $2 OR ($2 IS NULL AND folder_id IS NULL)) AND user_id = $1
 ORDER BY name
 `
 
 type ListFilesInFolderParams struct {
-	FolderID uuid.NullUUID
 	UserID   sql.NullInt32
+	FolderID uuid.NullUUID
 }
 
 func (q *Queries) ListFilesInFolder(ctx context.Context, arg ListFilesInFolderParams) ([]File, error) {
-	rows, err := q.db.QueryContext(ctx, listFilesInFolder, arg.FolderID, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listFilesInFolder, arg.UserID, arg.FolderID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,8 +140,8 @@ func (q *Queries) ListFilesInFolder(ctx context.Context, arg ListFilesInFolderPa
 		var i File
 		if err := rows.Scan(
 			&i.ID,
-			&i.FolderID,
 			&i.UserID,
+			&i.FolderID,
 			&i.Name,
 			&i.FilePath,
 			&i.SizeBytes,
@@ -166,14 +166,14 @@ const listFilesRecursive = `-- name: ListFilesRecursive :many
 WITH RECURSIVE subfolders AS (
     SELECT folders.id AS sf_folder_id
     FROM folders
-    WHERE folders.id = $1 AND folders.user_id = $2
+    WHERE folders.id = $2 AND folders.user_id = $1
 
     UNION ALL
 
     SELECT f.id AS sf_folder_id
     FROM folders f
     INNER JOIN subfolders s ON f.parent_id = s.sf_folder_id
-    WHERE f.user_id = $2
+    WHERE f.user_id = $1
 )
 SELECT 
     f.id AS file_id,
@@ -187,13 +187,13 @@ SELECT
     f.updated_at AS updated_at
 FROM files f
 INNER JOIN subfolders sf ON f.folder_id = sf.sf_folder_id
-WHERE f.user_id = $2
+WHERE f.user_id = $1
 ORDER BY f.name
 `
 
 type ListFilesRecursiveParams struct {
-	ID     uuid.UUID
 	UserID sql.NullInt32
+	ID     uuid.UUID
 }
 
 type ListFilesRecursiveRow struct {
@@ -209,7 +209,7 @@ type ListFilesRecursiveRow struct {
 }
 
 func (q *Queries) ListFilesRecursive(ctx context.Context, arg ListFilesRecursiveParams) ([]ListFilesRecursiveRow, error) {
-	rows, err := q.db.QueryContext(ctx, listFilesRecursive, arg.ID, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listFilesRecursive, arg.UserID, arg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -243,38 +243,34 @@ func (q *Queries) ListFilesRecursive(ctx context.Context, arg ListFilesRecursive
 
 const updateFileMetadata = `-- name: UpdateFileMetadata :execrows
 UPDATE files
-SET name = $2, updated_at = now()
-WHERE id = $1 AND user_id = $3
+SET
+    name       = COALESCE($3::text, name),
+    file_path  = COALESCE($4::text, file_path),
+    size_bytes = COALESCE($5::bigint, size_bytes),
+    mime_type  = COALESCE($6::text, mime_type),
+    updated_at = now()
+WHERE id = $1
+  AND user_id = $2
 `
 
 type UpdateFileMetadataParams struct {
-	ID     uuid.UUID
-	Name   string
-	UserID sql.NullInt32
+	ID      uuid.UUID
+	UserID  sql.NullInt32
+	Column3 string
+	Column4 string
+	Column5 int64
+	Column6 string
 }
 
 func (q *Queries) UpdateFileMetadata(ctx context.Context, arg UpdateFileMetadataParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateFileMetadata, arg.ID, arg.Name, arg.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateFilePath = `-- name: UpdateFilePath :execrows
-UPDATE files
-SET file_path = $2, updated_at = now()
-WHERE id = $1 AND user_id = $3
-`
-
-type UpdateFilePathParams struct {
-	ID       uuid.UUID
-	FilePath string
-	UserID   sql.NullInt32
-}
-
-func (q *Queries) UpdateFilePath(ctx context.Context, arg UpdateFilePathParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateFilePath, arg.ID, arg.FilePath, arg.UserID)
+	result, err := q.db.ExecContext(ctx, updateFileMetadata,
+		arg.ID,
+		arg.UserID,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+	)
 	if err != nil {
 		return 0, err
 	}

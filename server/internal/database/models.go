@@ -14,8 +14,8 @@ import (
 
 type File struct {
 	ID        uuid.UUID
-	FolderID  uuid.NullUUID
 	UserID    sql.NullInt32
+	FolderID  uuid.NullUUID
 	Name      string
 	FilePath  string
 	SizeBytes int64

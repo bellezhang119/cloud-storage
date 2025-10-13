@@ -74,21 +74,98 @@ func (q *Queries) GetFolderByID(ctx context.Context, id uuid.UUID) (Folder, erro
 	return i, err
 }
 
+const getFolderByNameInParent = `-- name: GetFolderByNameInParent :one
+SELECT id, user_id, name, parent_id, created_at, updated_at
+FROM folders
+WHERE 
+    user_id = $1 AND
+    name = $2 
+  AND (
+    (parent_id = $3 AND $3 IS NOT NULL)
+    OR (parent_id IS NULL AND $3 IS NULL)
+  )
+LIMIT 1
+`
+
+type GetFolderByNameInParentParams struct {
+	UserID   sql.NullInt32
+	Name     string
+	ParentID uuid.NullUUID
+}
+
+func (q *Queries) GetFolderByNameInParent(ctx context.Context, arg GetFolderByNameInParentParams) (Folder, error) {
+	row := q.db.QueryRowContext(ctx, getFolderByNameInParent, arg.UserID, arg.Name, arg.ParentID)
+	var i Folder
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.ParentID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getFolderFullPath = `-- name: GetFolderFullPath :one
+WITH RECURSIVE folder_path AS (
+    -- Anchor: start with the target folder
+    SELECT 
+        f.id AS folder_id,
+        f.name AS folder_name,
+        f.parent_id AS folder_parent_id,
+        f.user_id AS folder_user_id,
+        1 AS level
+    FROM folders f
+    WHERE f.id = $1 AND f.user_id = $2
+
+    UNION ALL
+
+    -- Recursive: join parent folders
+    SELECT 
+        f.id AS folder_id,
+        f.name AS folder_name,
+        f.parent_id AS folder_parent_id,
+        f.user_id AS folder_user_id,
+        fp.level + 1 AS level
+    FROM folders f
+    JOIN folder_path fp ON f.id = fp.folder_parent_id
+    WHERE f.user_id = $2
+)
+SELECT string_agg(folder_name, '/' ORDER BY level DESC)::TEXT AS full_path
+FROM folder_path
+`
+
+type GetFolderFullPathParams struct {
+	ID     uuid.UUID
+	UserID sql.NullInt32
+}
+
+func (q *Queries) GetFolderFullPath(ctx context.Context, arg GetFolderFullPathParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getFolderFullPath, arg.ID, arg.UserID)
+	var full_path string
+	err := row.Scan(&full_path)
+	return full_path, err
+}
+
 const listFoldersByParent = `-- name: ListFoldersByParent :many
 SELECT id, user_id, name, parent_id, created_at, updated_at
 FROM folders
-WHERE parent_id = $1
-  AND user_id = $2
+WHERE user_id = $1
+  AND (
+    (parent_id = $2 AND $2 IS NOT NULL)
+    OR (parent_id IS NULL AND $2 IS NULL)
+  )
 ORDER BY name
 `
 
 type ListFoldersByParentParams struct {
-	ParentID uuid.NullUUID
 	UserID   sql.NullInt32
+	ParentID uuid.NullUUID
 }
 
 func (q *Queries) ListFoldersByParent(ctx context.Context, arg ListFoldersByParentParams) ([]Folder, error) {
-	rows, err := q.db.QueryContext(ctx, listFoldersByParent, arg.ParentID, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listFoldersByParent, arg.UserID, arg.ParentID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,43 +255,21 @@ func (q *Queries) ListFoldersRecursive(ctx context.Context, arg ListFoldersRecur
 	return items, nil
 }
 
-const moveFolder = `-- name: MoveFolder :execrows
-UPDATE folders
-SET parent_id = $2,
-    updated_at = now()
-WHERE id = $1
-  AND user_id = $3
-`
-
-type MoveFolderParams struct {
-	ID       uuid.UUID
-	ParentID uuid.NullUUID
-	UserID   sql.NullInt32
-}
-
-func (q *Queries) MoveFolder(ctx context.Context, arg MoveFolderParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, moveFolder, arg.ID, arg.ParentID, arg.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const updateFolderMetadata = `-- name: UpdateFolderMetadata :execrows
 UPDATE folders
-SET name = $2,
+SET name = $3,
     updated_at = now()
-WHERE id = $1 AND user_id = $3
+WHERE id = $1 AND user_id = $2
 `
 
 type UpdateFolderMetadataParams struct {
 	ID     uuid.UUID
-	Name   string
 	UserID sql.NullInt32
+	Name   string
 }
 
 func (q *Queries) UpdateFolderMetadata(ctx context.Context, arg UpdateFolderMetadataParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateFolderMetadata, arg.ID, arg.Name, arg.UserID)
+	result, err := q.db.ExecContext(ctx, updateFolderMetadata, arg.ID, arg.UserID, arg.Name)
 	if err != nil {
 		return 0, err
 	}
@@ -223,19 +278,19 @@ func (q *Queries) UpdateFolderMetadata(ctx context.Context, arg UpdateFolderMeta
 
 const updateFolderParent = `-- name: UpdateFolderParent :execrows
 UPDATE folders
-SET parent_id = $2,
+SET parent_id = $3,
     updated_at = now()
-WHERE id = $1 AND user_id = $3
+WHERE id = $1 AND user_id = $2
 `
 
 type UpdateFolderParentParams struct {
 	ID       uuid.UUID
-	ParentID uuid.NullUUID
 	UserID   sql.NullInt32
+	ParentID uuid.NullUUID
 }
 
 func (q *Queries) UpdateFolderParent(ctx context.Context, arg UpdateFolderParentParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateFolderParent, arg.ID, arg.ParentID, arg.UserID)
+	result, err := q.db.ExecContext(ctx, updateFolderParent, arg.ID, arg.UserID, arg.ParentID)
 	if err != nil {
 		return 0, err
 	}

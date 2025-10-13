@@ -13,21 +13,21 @@ WHERE folder_id = $1 AND name = $2;
 -- name: ListFilesInFolder :many
 SELECT *
 FROM files
-WHERE (folder_id = $1 OR ($1 IS NULL AND folder_id IS NULL)) AND user_id = $2
+WHERE (folder_id = $2 OR ($2 IS NULL AND folder_id IS NULL)) AND user_id = $1
 ORDER BY name;
 
 -- name: ListFilesRecursive :many
 WITH RECURSIVE subfolders AS (
     SELECT folders.id AS sf_folder_id
     FROM folders
-    WHERE folders.id = $1 AND folders.user_id = $2
+    WHERE folders.id = $2 AND folders.user_id = $1
 
     UNION ALL
 
     SELECT f.id AS sf_folder_id
     FROM folders f
     INNER JOIN subfolders s ON f.parent_id = s.sf_folder_id
-    WHERE f.user_id = $2
+    WHERE f.user_id = $1
 )
 SELECT 
     f.id AS file_id,
@@ -41,7 +41,7 @@ SELECT
     f.updated_at AS updated_at
 FROM files f
 INNER JOIN subfolders sf ON f.folder_id = sf.sf_folder_id
-WHERE f.user_id = $2
+WHERE f.user_id = $1
 ORDER BY f.name;
 
 -- name: DeleteFile :execrows
@@ -50,10 +50,11 @@ WHERE id = $1 AND user_id = $2;
 
 -- name: UpdateFileMetadata :execrows
 UPDATE files
-SET name = $2, updated_at = now()
-WHERE id = $1 AND user_id = $3;
-
--- name: UpdateFilePath :execrows
-UPDATE files
-SET file_path = $2, updated_at = now()
-WHERE id = $1 AND user_id = $3;
+SET
+    name       = COALESCE($3::text, name),
+    file_path  = COALESCE($4::text, file_path),
+    size_bytes = COALESCE($5::bigint, size_bytes),
+    mime_type  = COALESCE($6::text, mime_type),
+    updated_at = now()
+WHERE id = $1
+  AND user_id = $2;
