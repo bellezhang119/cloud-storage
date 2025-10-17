@@ -10,6 +10,7 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const createFile = `-- name: CreateFile :one
@@ -51,18 +52,18 @@ func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) (File, e
 	return i, err
 }
 
-const deleteFile = `-- name: DeleteFile :execrows
+const deleteFiles = `-- name: DeleteFiles :execrows
 DELETE FROM files
-WHERE id = $1 AND user_id = $2
+WHERE id = ANY($1::uuid[]) AND user_id = $2
 `
 
-type DeleteFileParams struct {
-	ID     uuid.UUID
-	UserID sql.NullInt32
+type DeleteFilesParams struct {
+	Column1 []uuid.UUID
+	UserID  sql.NullInt32
 }
 
-func (q *Queries) DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteFile, arg.ID, arg.UserID)
+func (q *Queries) DeleteFiles(ctx context.Context, arg DeleteFilesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteFiles, pq.Array(arg.Column1), arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -70,11 +71,16 @@ func (q *Queries) DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, 
 }
 
 const getFileByID = `-- name: GetFileByID :one
-SELECT id, user_id, folder_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files WHERE id = $1
+SELECT id, user_id, folder_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files WHERE id = $1 AND user_id = $2
 `
 
-func (q *Queries) GetFileByID(ctx context.Context, id uuid.UUID) (File, error) {
-	row := q.db.QueryRowContext(ctx, getFileByID, id)
+type GetFileByIDParams struct {
+	ID     uuid.UUID
+	UserID sql.NullInt32
+}
+
+func (q *Queries) GetFileByID(ctx context.Context, arg GetFileByIDParams) (File, error) {
+	row := q.db.QueryRowContext(ctx, getFileByID, arg.ID, arg.UserID)
 	var i File
 	err := row.Scan(
 		&i.ID,
@@ -244,32 +250,82 @@ func (q *Queries) ListFilesRecursive(ctx context.Context, arg ListFilesRecursive
 const updateFileMetadata = `-- name: UpdateFileMetadata :execrows
 UPDATE files
 SET
-    name       = COALESCE($3::text, name),
-    file_path  = COALESCE($4::text, file_path),
-    size_bytes = COALESCE($5::bigint, size_bytes),
-    mime_type  = COALESCE($6::text, mime_type),
+    size_bytes = $3 AND
+    mime_type  = $4,
     updated_at = now()
 WHERE id = $1
   AND user_id = $2
 `
 
 type UpdateFileMetadataParams struct {
-	ID      uuid.UUID
-	UserID  sql.NullInt32
-	Column3 string
-	Column4 string
-	Column5 int64
-	Column6 string
+	ID        uuid.UUID
+	UserID    sql.NullInt32
+	SizeBytes int64
+	MimeType  sql.NullString
 }
 
 func (q *Queries) UpdateFileMetadata(ctx context.Context, arg UpdateFileMetadataParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateFileMetadata,
 		arg.ID,
 		arg.UserID,
-		arg.Column3,
-		arg.Column4,
-		arg.Column5,
-		arg.Column6,
+		arg.SizeBytes,
+		arg.MimeType,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateFileNameAndPath = `-- name: UpdateFileNameAndPath :execrows
+UPDATE files
+SET name = $3 AND
+    file_path = $4,
+    updated_at = now()
+WHERE id = $1 AND user_id = $2
+`
+
+type UpdateFileNameAndPathParams struct {
+	ID       uuid.UUID
+	UserID   sql.NullInt32
+	Name     string
+	FilePath string
+}
+
+func (q *Queries) UpdateFileNameAndPath(ctx context.Context, arg UpdateFileNameAndPathParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateFileNameAndPath,
+		arg.ID,
+		arg.UserID,
+		arg.Name,
+		arg.FilePath,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateFileParentAndPath = `-- name: UpdateFileParentAndPath :execrows
+UPDATE files
+SET folder_id = $3 AND
+    file_path = $4,
+    updated_at = now()
+WHERE id = $1 AND user_id = $2
+`
+
+type UpdateFileParentAndPathParams struct {
+	ID       uuid.UUID
+	UserID   sql.NullInt32
+	FolderID uuid.NullUUID
+	FilePath string
+}
+
+func (q *Queries) UpdateFileParentAndPath(ctx context.Context, arg UpdateFileParentAndPathParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateFileParentAndPath,
+		arg.ID,
+		arg.UserID,
+		arg.FolderID,
+		arg.FilePath,
 	)
 	if err != nil {
 		return 0, err

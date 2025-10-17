@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/bellezhang119/cloud-storage/internal/middleware.go"
+	"github.com/bellezhang119/cloud-storage/internal/middleware"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 )

@@ -22,7 +22,7 @@ CREATE TABLE files (
     mime_type TEXT,
     created_at TIMESTAMP DEFAULT now(),
     updated_at TIMESTAMP DEFAULT now(),
-    UNIQUE(folder_id, name)
+    UNIQUE(user_id, folder_id, name)
 );
 
 -- File shares table

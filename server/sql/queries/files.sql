@@ -4,7 +4,7 @@ VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: GetFileByID :one
-SELECT * FROM files WHERE id = $1;
+SELECT * FROM files WHERE id = $1 AND user_id = $2;
 
 -- name: GetFileByNameInFolder :one
 SELECT * FROM files
@@ -44,17 +44,29 @@ INNER JOIN subfolders sf ON f.folder_id = sf.sf_folder_id
 WHERE f.user_id = $1
 ORDER BY f.name;
 
--- name: DeleteFile :execrows
+-- name: DeleteFiles :execrows
 DELETE FROM files
-WHERE id = $1 AND user_id = $2;
+WHERE id = ANY($1::uuid[]) AND user_id = $2;
 
 -- name: UpdateFileMetadata :execrows
 UPDATE files
 SET
-    name       = COALESCE($3::text, name),
-    file_path  = COALESCE($4::text, file_path),
-    size_bytes = COALESCE($5::bigint, size_bytes),
-    mime_type  = COALESCE($6::text, mime_type),
+    size_bytes = $3 AND
+    mime_type  = $4,
     updated_at = now()
 WHERE id = $1
   AND user_id = $2;
+
+-- name: UpdateFileNameAndPath :execrows
+UPDATE files
+SET name = $3 AND
+    file_path = $4,
+    updated_at = now()
+WHERE id = $1 AND user_id = $2;
+
+-- name: UpdateFileParentAndPath :execrows
+UPDATE files
+SET folder_id = $3 AND
+    file_path = $4,
+    updated_at = now()
+WHERE id = $1 AND user_id = $2;

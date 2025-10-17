@@ -10,6 +10,7 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const createFolder = `-- name: CreateFolder :one
@@ -38,18 +39,18 @@ func (q *Queries) CreateFolder(ctx context.Context, arg CreateFolderParams) (Fol
 	return i, err
 }
 
-const deleteFolder = `-- name: DeleteFolder :execrows
+const deleteFolders = `-- name: DeleteFolders :execrows
 DELETE FROM folders
-WHERE id = $1 AND user_id = $2
+WHERE id = ANY($1::uuid[]) AND user_id = $2
 `
 
-type DeleteFolderParams struct {
-	ID     uuid.UUID
-	UserID sql.NullInt32
+type DeleteFoldersParams struct {
+	Column1 []uuid.UUID
+	UserID  sql.NullInt32
 }
 
-func (q *Queries) DeleteFolder(ctx context.Context, arg DeleteFolderParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteFolder, arg.ID, arg.UserID)
+func (q *Queries) DeleteFolders(ctx context.Context, arg DeleteFoldersParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteFolders, pq.Array(arg.Column1), arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -57,11 +58,16 @@ func (q *Queries) DeleteFolder(ctx context.Context, arg DeleteFolderParams) (int
 }
 
 const getFolderByID = `-- name: GetFolderByID :one
-SELECT id, user_id, name, parent_id, created_at, updated_at FROM folders WHERE id = $1
+SELECT id, user_id, name, parent_id, created_at, updated_at FROM folders WHERE id = $1 AND user_id = $2
 `
 
-func (q *Queries) GetFolderByID(ctx context.Context, id uuid.UUID) (Folder, error) {
-	row := q.db.QueryRowContext(ctx, getFolderByID, id)
+type GetFolderByIDParams struct {
+	ID     uuid.UUID
+	UserID sql.NullInt32
+}
+
+func (q *Queries) GetFolderByID(ctx context.Context, arg GetFolderByIDParams) (Folder, error) {
+	row := q.db.QueryRowContext(ctx, getFolderByID, arg.ID, arg.UserID)
 	var i Folder
 	err := row.Scan(
 		&i.ID,
@@ -276,21 +282,21 @@ func (q *Queries) UpdateFolderMetadata(ctx context.Context, arg UpdateFolderMeta
 	return result.RowsAffected()
 }
 
-const updateFolderParent = `-- name: UpdateFolderParent :execrows
+const updateFoldersParent = `-- name: UpdateFoldersParent :execrows
 UPDATE folders
 SET parent_id = $3,
     updated_at = now()
-WHERE id = $1 AND user_id = $2
+WHERE id = ANY($1::uuid[]) AND user_id = $2
 `
 
-type UpdateFolderParentParams struct {
-	ID       uuid.UUID
+type UpdateFoldersParentParams struct {
+	Column1  []uuid.UUID
 	UserID   sql.NullInt32
 	ParentID uuid.NullUUID
 }
 
-func (q *Queries) UpdateFolderParent(ctx context.Context, arg UpdateFolderParentParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateFolderParent, arg.ID, arg.UserID, arg.ParentID)
+func (q *Queries) UpdateFoldersParent(ctx context.Context, arg UpdateFoldersParentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateFoldersParent, pq.Array(arg.Column1), arg.UserID, arg.ParentID)
 	if err != nil {
 		return 0, err
 	}

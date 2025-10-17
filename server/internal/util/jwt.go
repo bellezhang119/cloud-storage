@@ -42,9 +42,9 @@ func GenerateJWTTokens(userID int32, email string, refreshTokenExpiry time.Time)
 }
 
 func VerifyAccessToken(tokenStr string) (claims jwt.MapClaims, err error) {
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("Unexpected signing method")
+			return nil, errors.New("unexpected signing method")
 		}
 		return jwtSecret, nil
 	})
@@ -57,11 +57,11 @@ func VerifyAccessToken(tokenStr string) (claims jwt.MapClaims, err error) {
 		return claims, nil
 	}
 
-	return nil, errors.New("Invalid access token")
+	return nil, errors.New("invalid access token")
 }
 
 func VerifyRefreshToken(tokenStr string) (jwt.MapClaims, error) {
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}

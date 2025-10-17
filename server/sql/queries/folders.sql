@@ -4,7 +4,7 @@ VALUES ($1, $2, $3)
 RETURNING *;
 
 -- name: GetFolderByID :one
-SELECT * FROM folders WHERE id = $1;
+SELECT * FROM folders WHERE id = $1 AND user_id = $2;
 
 -- name: ListFoldersByParent :many
 SELECT *
@@ -56,9 +56,9 @@ WITH RECURSIVE folder_path AS (
 SELECT string_agg(folder_name, '/' ORDER BY level DESC)::TEXT AS full_path
 FROM folder_path;
 
--- name: DeleteFolder :execrows
+-- name: DeleteFolders :execrows
 DELETE FROM folders
-WHERE id = $1 AND user_id = $2;
+WHERE id = ANY($1::uuid[]) AND user_id = $2;
 
 -- name: ListFoldersRecursive :many
 WITH RECURSIVE subfolders AS (
@@ -82,8 +82,8 @@ SET name = $3,
     updated_at = now()
 WHERE id = $1 AND user_id = $2;
 
--- name: UpdateFolderParent :execrows
+-- name: UpdateFoldersParent :execrows
 UPDATE folders
 SET parent_id = $3,
     updated_at = now()
-WHERE id = $1 AND user_id = $2;
+WHERE id = ANY($1::uuid[]) AND user_id = $2;
