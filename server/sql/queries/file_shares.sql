@@ -1,13 +1,25 @@
--- name: ShareFile :one
-INSERT INTO file_shares (file_id, shared_with, permission)
-VALUES ($1, $2, $3)
-ON CONFLICT (file_id, shared_with) DO UPDATE
-SET permission = EXCLUDED.permission
+-- name: CreateFileShare :one
+INSERT INTO file_shares (file_id, shared_user_id, permission)
+VALUES ($1, $2, 'read')
 RETURNING *;
 
--- name: GetFileShares :many
-SELECT * FROM file_shares WHERE file_id = $1;
+-- name: GetFileShare :one
+SELECT *
+FROM file_shares
+WHERE file_id = $1 AND shared_user_id = $2;
 
--- name: RemoveFileShare :execrows
+-- name: ListFileShares :many
+SELECT *
+FROM file_shares
+WHERE file_id = $1;
+
+-- name: DeleteFileShare :execrows
 DELETE FROM file_shares
-WHERE file_id = $1 AND shared_with = $2;
+WHERE file_id = $1 AND shared_user_id = $2;
+
+-- name: CanUserAccessFile :one
+SELECT 1
+FROM files f
+LEFT JOIN file_shares fs ON fs.file_id = f.id
+WHERE f.id = $1 AND (f.user_id = $2 OR fs.shared_user_id = $2)
+LIMIT 1;

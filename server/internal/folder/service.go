@@ -535,3 +535,5 @@ func (s *Service) updateAllChildFilePaths(ctx context.Context, userID int32, fol
 
 	return nil
 }
+
+// --------------------------------------------------------------------------------------------------------------------------

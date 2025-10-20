@@ -12,12 +12,88 @@ import (
 	"github.com/google/uuid"
 )
 
-const getFileShares = `-- name: GetFileShares :many
-SELECT id, file_id, shared_with, permission, created_at FROM file_shares WHERE file_id = $1
+const canUserAccessFile = `-- name: CanUserAccessFile :one
+SELECT 1
+FROM files f
+LEFT JOIN file_shares fs ON fs.file_id = f.id
+WHERE f.id = $1 AND (f.user_id = $2 OR fs.shared_user_id = $2)
+LIMIT 1
 `
 
-func (q *Queries) GetFileShares(ctx context.Context, fileID uuid.NullUUID) ([]FileShare, error) {
-	rows, err := q.db.QueryContext(ctx, getFileShares, fileID)
+type CanUserAccessFileParams struct {
+	ID     uuid.UUID
+	UserID sql.NullInt32
+}
+
+func (q *Queries) CanUserAccessFile(ctx context.Context, arg CanUserAccessFileParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, canUserAccessFile, arg.ID, arg.UserID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const createFileShare = `-- name: CreateFileShare :one
+INSERT INTO file_shares (file_id, shared_user_id, permission)
+VALUES ($1, $2, 'read')
+RETURNING file_id, shared_user_id, created_at
+`
+
+type CreateFileShareParams struct {
+	FileID       uuid.NullUUID
+	SharedUserID sql.NullInt32
+}
+
+func (q *Queries) CreateFileShare(ctx context.Context, arg CreateFileShareParams) (FileShare, error) {
+	row := q.db.QueryRowContext(ctx, createFileShare, arg.FileID, arg.SharedUserID)
+	var i FileShare
+	err := row.Scan(&i.FileID, &i.SharedUserID, &i.CreatedAt)
+	return i, err
+}
+
+const deleteFileShare = `-- name: DeleteFileShare :execrows
+DELETE FROM file_shares
+WHERE file_id = $1 AND shared_user_id = $2
+`
+
+type DeleteFileShareParams struct {
+	FileID       uuid.NullUUID
+	SharedUserID sql.NullInt32
+}
+
+func (q *Queries) DeleteFileShare(ctx context.Context, arg DeleteFileShareParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteFileShare, arg.FileID, arg.SharedUserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getFileShare = `-- name: GetFileShare :one
+SELECT file_id, shared_user_id, created_at
+FROM file_shares
+WHERE file_id = $1 AND shared_user_id = $2
+`
+
+type GetFileShareParams struct {
+	FileID       uuid.NullUUID
+	SharedUserID sql.NullInt32
+}
+
+func (q *Queries) GetFileShare(ctx context.Context, arg GetFileShareParams) (FileShare, error) {
+	row := q.db.QueryRowContext(ctx, getFileShare, arg.FileID, arg.SharedUserID)
+	var i FileShare
+	err := row.Scan(&i.FileID, &i.SharedUserID, &i.CreatedAt)
+	return i, err
+}
+
+const listFileShares = `-- name: ListFileShares :many
+SELECT file_id, shared_user_id, created_at
+FROM file_shares
+WHERE file_id = $1
+`
+
+func (q *Queries) ListFileShares(ctx context.Context, fileID uuid.NullUUID) ([]FileShare, error) {
+	rows, err := q.db.QueryContext(ctx, listFileShares, fileID)
 	if err != nil {
 		return nil, err
 	}
@@ -25,13 +101,7 @@ func (q *Queries) GetFileShares(ctx context.Context, fileID uuid.NullUUID) ([]Fi
 	var items []FileShare
 	for rows.Next() {
 		var i FileShare
-		if err := rows.Scan(
-			&i.ID,
-			&i.FileID,
-			&i.SharedWith,
-			&i.Permission,
-			&i.CreatedAt,
-		); err != nil {
+		if err := rows.Scan(&i.FileID, &i.SharedUserID, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -43,49 +113,4 @@ func (q *Queries) GetFileShares(ctx context.Context, fileID uuid.NullUUID) ([]Fi
 		return nil, err
 	}
 	return items, nil
-}
-
-const removeFileShare = `-- name: RemoveFileShare :execrows
-DELETE FROM file_shares
-WHERE file_id = $1 AND shared_with = $2
-`
-
-type RemoveFileShareParams struct {
-	FileID     uuid.NullUUID
-	SharedWith sql.NullInt32
-}
-
-func (q *Queries) RemoveFileShare(ctx context.Context, arg RemoveFileShareParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, removeFileShare, arg.FileID, arg.SharedWith)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const shareFile = `-- name: ShareFile :one
-INSERT INTO file_shares (file_id, shared_with, permission)
-VALUES ($1, $2, $3)
-ON CONFLICT (file_id, shared_with) DO UPDATE
-SET permission = EXCLUDED.permission
-RETURNING id, file_id, shared_with, permission, created_at
-`
-
-type ShareFileParams struct {
-	FileID     uuid.NullUUID
-	SharedWith sql.NullInt32
-	Permission sql.NullString
-}
-
-func (q *Queries) ShareFile(ctx context.Context, arg ShareFileParams) (FileShare, error) {
-	row := q.db.QueryRowContext(ctx, shareFile, arg.FileID, arg.SharedWith, arg.Permission)
-	var i FileShare
-	err := row.Scan(
-		&i.ID,
-		&i.FileID,
-		&i.SharedWith,
-		&i.Permission,
-		&i.CreatedAt,
-	)
-	return i, err
 }

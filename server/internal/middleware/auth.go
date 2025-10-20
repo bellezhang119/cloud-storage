@@ -15,12 +15,14 @@ const userEmailKey contextKey = "user_email"
 
 type TokenVerifier func(tokenStr string) (jwt.MapClaims, error)
 
-func GetUserIDKey() interface{} {
-	return userIDKey
+func GetUserID(ctx context.Context) (int32, bool) {
+	id, ok := ctx.Value(userIDKey).(int32)
+	return id, ok
 }
 
-func GetUserEmailKey() interface{} {
-	return userEmailKey
+func GetUserEmail(ctx context.Context) (string, bool) {
+	email, ok := ctx.Value(userEmailKey).(string)
+	return email, ok
 }
 
 func AuthMiddleware(verify TokenVerifier) func(http.Handler) http.Handler {

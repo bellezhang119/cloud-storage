@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sqlc-dev/pqtype"
 )
 
 type File struct {
@@ -24,21 +23,10 @@ type File struct {
 	UpdatedAt sql.NullTime
 }
 
-type FileActivity struct {
-	ID        uuid.UUID
-	FileID    uuid.NullUUID
-	UserID    sql.NullInt32
-	Action    string
-	Details   pqtype.NullRawMessage
-	CreatedAt time.Time
-}
-
 type FileShare struct {
-	ID         uuid.UUID
-	FileID     uuid.NullUUID
-	SharedWith sql.NullInt32
-	Permission sql.NullString
-	CreatedAt  sql.NullTime
+	FileID       uuid.NullUUID
+	SharedUserID sql.NullInt32
+	CreatedAt    sql.NullTime
 }
 
 type Folder struct {
@@ -48,6 +36,12 @@ type Folder struct {
 	ParentID  uuid.NullUUID
 	CreatedAt sql.NullTime
 	UpdatedAt sql.NullTime
+}
+
+type FolderShare struct {
+	FolderID     uuid.NullUUID
+	SharedUserID sql.NullInt32
+	CreatedAt    sql.NullTime
 }
 
 type RefreshToken struct {

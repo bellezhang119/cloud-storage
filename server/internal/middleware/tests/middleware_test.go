@@ -22,8 +22,8 @@ func TestAuthMiddleware_Success(t *testing.T) {
 
 	// Dummy handler to verify context values
 	handler := mdlware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID := r.Context().Value(middleware.GetUserIDKey())
-		email := r.Context().Value(middleware.GetUserEmailKey())
+		userID, _ := middleware.GetUserID(r.Context())
+		email, _ := middleware.GetUserEmail(r.Context())
 
 		assert.Equal(t, int32(123), userID)
 		assert.Equal(t, "test@example.com", email)

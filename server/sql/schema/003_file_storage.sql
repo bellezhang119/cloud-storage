@@ -27,26 +27,28 @@ CREATE TABLE files (
 
 -- File shares table
 CREATE TABLE file_shares (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     file_id UUID REFERENCES files(id) ON DELETE CASCADE,
-    shared_with INT REFERENCES users(id) ON DELETE CASCADE,
-    permission TEXT CHECK (permission IN ('read','write','owner')),
+    shared_user_id INT REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT now(),
-    UNIQUE(file_id, shared_with)
+    UNIQUE(file_id, shared_user_id)
 );
 
--- Activity log table (optional for audit/logging)
-CREATE TABLE file_activity (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id UUID REFERENCES files(id) ON DELETE CASCADE,
-    user_id INT REFERENCES users(id) ON DELETE SET NULL,
-    action VARCHAR(50) NOT NULL,          -- e.g. UPLOAD, DOWNLOAD, DELETE, SHARE
-    details JSONB,                        -- optional extra info
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+-- Folder shares table
+CREATE TABLE folder_shares (
+    folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
+    shared_user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT now(),
+    UNIQUE(folder_id, shared_user_id)
 );
+
+-- Indexes for performance
+CREATE INDEX idx_file_shares_user ON file_shares(shared_user_id);
+CREATE INDEX idx_folder_shares_user ON folder_shares(shared_user_id);
+CREATE INDEX idx_files_folder ON files(folder_id);
+CREATE INDEX idx_folders_parent ON folders(parent_id);
 
 -- +goose Down
-DROP TABLE IF EXISTS file_activity;
 DROP TABLE IF EXISTS file_shares;
+DROP TABLE IF EXISTS folder_shares;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS folders;
