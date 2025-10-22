@@ -1,4 +1,4 @@
-package folder
+package services
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Queries interface {
+type FolderQueries interface {
 	CreateFolder(ctx context.Context, arg database.CreateFolderParams) (database.Folder, error)
 	GetFolderByID(ctx context.Context, arg database.GetFolderByIDParams) (database.Folder, error)
 	ListFoldersByParent(ctx context.Context, arg database.ListFoldersByParentParams) ([]database.Folder, error)
@@ -49,8 +49,8 @@ type FileService interface {
 	UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, name string, filePath string) error
 }
 
-type Service struct {
-	queries Queries
+type FolderServiceImpl struct {
+	queries FolderQueries
 	files   FileService
 	local   local.Storage
 }
@@ -79,37 +79,37 @@ type UploadResult struct {
 	Conflicts   []UploadConflict `json:"conflicts"`   // List of conflicts (skipped files/folders)
 }
 
-func NewService(q Queries, local local.Storage) *Service {
-	return &Service{queries: q, local: local}
+func NewFolderService(q FolderQueries, local local.Storage) *FolderServiceImpl {
+	return &FolderServiceImpl{queries: q, local: local}
 }
 
-func (s *Service) SetFileService(f FileService) {
+func (s *FolderServiceImpl) SetFileService(f FileService) {
 	s.files = f
 }
 
 // Getters
-func (s *Service) GetFolderByID(ctx context.Context, folderID uuid.UUID, userID int32) (database.Folder, error) {
+func (s *FolderServiceImpl) GetFolderByID(ctx context.Context, folderID uuid.UUID, userID int32) (database.Folder, error) {
 	return s.queries.GetFolderByID(ctx, database.GetFolderByIDParams{
 		ID:     folderID,
 		UserID: util.ToNullInt32(&userID),
 	})
 }
 
-func (s *Service) ListFoldersByParent(ctx context.Context, userID int32, parentID *uuid.UUID) ([]database.Folder, error) {
+func (s *FolderServiceImpl) ListFoldersByParent(ctx context.Context, userID int32, parentID *uuid.UUID) ([]database.Folder, error) {
 	return s.queries.ListFoldersByParent(ctx, database.ListFoldersByParentParams{
 		UserID:   util.ToNullInt32(&userID),
 		ParentID: util.ToNullUUID(parentID),
 	})
 }
 
-func (s *Service) GetFolderFullPath(ctx context.Context, folderID uuid.UUID, userID int32) (string, error) {
+func (s *FolderServiceImpl) GetFolderFullPath(ctx context.Context, folderID uuid.UUID, userID int32) (string, error) {
 	return s.queries.GetFolderFullPath(ctx, database.GetFolderFullPathParams{
 		ID:     folderID,
 		UserID: util.ToNullInt32(&userID),
 	})
 }
 
-func (s *Service) GetFolderByNameInParent(ctx context.Context, userID int32, name string, parentID *uuid.UUID) (database.Folder, error) {
+func (s *FolderServiceImpl) GetFolderByNameInParent(ctx context.Context, userID int32, name string, parentID *uuid.UUID) (database.Folder, error) {
 	return s.queries.GetFolderByNameInParent(ctx, database.GetFolderByNameInParentParams{
 		UserID:   util.ToNullInt32(&userID),
 		Name:     name,
@@ -120,7 +120,7 @@ func (s *Service) GetFolderByNameInParent(ctx context.Context, userID int32, nam
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Create Folder
-func (s *Service) CreateFolder(ctx context.Context, userID int32, name string, parentID *uuid.UUID) (database.Folder, error) {
+func (s *FolderServiceImpl) CreateFolder(ctx context.Context, userID int32, name string, parentID *uuid.UUID) (database.Folder, error) {
 	// 1. Create DB record first
 	folder, err := s.queries.CreateFolder(ctx, database.CreateFolderParams{
 		UserID:   util.ToNullInt32(&userID),
@@ -154,7 +154,7 @@ func (s *Service) CreateFolder(ctx context.Context, userID int32, name string, p
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Download folder
-func (s *Service) GetZippedFolderForDownload(ctx context.Context, folderID uuid.UUID, userID int32, w io.Writer) (database.Folder, error) {
+func (s *FolderServiceImpl) GetZippedFolderForDownload(ctx context.Context, folderID uuid.UUID, userID int32, w io.Writer) (database.Folder, error) {
 	// 1. Look up folder in DB
 	folderMeta, err := s.GetFolderByID(ctx, folderID, userID)
 	if err != nil {
@@ -175,7 +175,7 @@ func (s *Service) GetZippedFolderForDownload(ctx context.Context, folderID uuid.
 	return folderMeta, nil
 }
 
-func (s *Service) GetZippedFoldersForDownload(ctx context.Context, folderIDs []uuid.UUID, userID int32, w io.Writer) ([]database.Folder, error) {
+func (s *FolderServiceImpl) GetZippedFoldersForDownload(ctx context.Context, folderIDs []uuid.UUID, userID int32, w io.Writer) ([]database.Folder, error) {
 	var folderPaths []string
 	var foldersMeta []database.Folder
 
@@ -204,7 +204,7 @@ func (s *Service) GetZippedFoldersForDownload(ctx context.Context, folderIDs []u
 
 // --------------------------------------------------------------------------------------------------------------------------
 
-func (s *Service) UploadFolder(
+func (s *FolderServiceImpl) UploadFolder(
 	ctx context.Context,
 	userID int32,
 	parentID *uuid.UUID,
@@ -277,7 +277,7 @@ func (s *Service) UploadFolder(
 
 // --------------------------------------------------------------------------------------------------------------------------
 
-func (s *Service) DeleteFolders(ctx context.Context, folderIDs []uuid.UUID, userID int32) error {
+func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.UUID, userID int32) error {
 	if len(folderIDs) == 0 {
 		return fmt.Errorf("no folders specified for deletion")
 	}
@@ -322,7 +322,7 @@ func (s *Service) DeleteFolders(ctx context.Context, folderIDs []uuid.UUID, user
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Update methods
-func (s *Service) UpdateFolderMetadata(ctx context.Context, folderID uuid.UUID, userID int32, name string) error {
+func (s *FolderServiceImpl) UpdateFolderMetadata(ctx context.Context, folderID uuid.UUID, userID int32, name string) error {
 	rows, err := s.queries.UpdateFolderMetadata(ctx, database.UpdateFolderMetadataParams{
 		ID:     folderID,
 		UserID: util.ToNullInt32(&userID),
@@ -338,7 +338,7 @@ func (s *Service) UpdateFolderMetadata(ctx context.Context, folderID uuid.UUID, 
 	return nil
 }
 
-func (s *Service) UpdateFoldersParent(ctx context.Context, folders []database.Folder, userID int32, newParentID *uuid.UUID) error {
+func (s *FolderServiceImpl) UpdateFoldersParent(ctx context.Context, folders []database.Folder, userID int32, newParentID *uuid.UUID) error {
 	if len(folders) == 0 {
 		return fmt.Errorf("no folders provided")
 	}
@@ -373,7 +373,7 @@ func (s *Service) UpdateFoldersParent(ctx context.Context, folders []database.Fo
 	return nil
 }
 
-func (s *Service) MoveFolders(ctx context.Context, folderIDs []uuid.UUID, userID int32, newParentID *uuid.UUID, overwriteFiles bool) error {
+func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UUID, userID int32, newParentID *uuid.UUID, overwriteFiles bool) error {
 	if len(folderIDs) == 0 {
 		return fmt.Errorf("no folder IDs provided")
 	}
@@ -446,7 +446,7 @@ func (s *Service) MoveFolders(ctx context.Context, folderIDs []uuid.UUID, userID
 	return nil
 }
 
-func (s *Service) RenameFolder(ctx context.Context, folderID uuid.UUID, newName string, userID int32, overwriteFiles bool) error {
+func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID, newName string, userID int32, overwriteFiles bool) error {
 	if newName == "" {
 		return fmt.Errorf("new folder name is required")
 	}
@@ -518,7 +518,7 @@ func (s *Service) RenameFolder(ctx context.Context, folderID uuid.UUID, newName 
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Internal helpers
-func (s *Service) updateAllChildFilePaths(ctx context.Context, userID int32, folderID uuid.UUID, oldPath, newPath string) error {
+func (s *FolderServiceImpl) updateAllChildFilePaths(ctx context.Context, userID int32, folderID uuid.UUID, oldPath, newPath string) error {
 	files, err := s.files.ListFilesRecursive(ctx, folderID)
 	if err != nil {
 		return fmt.Errorf("listing files in folder: %w", err)

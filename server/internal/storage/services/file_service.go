@@ -1,4 +1,4 @@
-package file
+package services
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Queries interface {
+type FileQueries interface {
 	CreateFile(ctx context.Context, arg database.CreateFileParams) (database.File, error)
 	GetFileByID(ctx context.Context, arg database.GetFileByIDParams) (database.File, error)
 	GetFileByNameInFolder(ctx context.Context, arg database.GetFileByNameInFolderParams) (database.File, error)
@@ -40,22 +40,22 @@ type FileDownload struct {
 	Content io.ReadCloser
 }
 
-type Service struct {
-	queries Queries
+type FileServiceImpl struct {
+	queries FileQueries
 	folders FolderService
 	local   local.Storage
 }
 
-func NewService(q Queries, local local.Storage) *Service {
-	return &Service{queries: q, local: local}
+func NewFileService(q FileQueries, local local.Storage) *FileServiceImpl {
+	return &FileServiceImpl{queries: q, local: local}
 }
 
-func (s *Service) SetFolderService(f FolderService) {
+func (s *FileServiceImpl) SetFolderService(f FolderService) {
 	s.folders = f
 }
 
 // Getters
-func (s *Service) GetFileByID(ctx context.Context, id uuid.UUID) (database.File, error) {
+func (s *FileServiceImpl) GetFileByID(ctx context.Context, id uuid.UUID) (database.File, error) {
 	userID, _ := middleware.GetUserID(ctx)
 	return s.queries.GetFileByID(ctx, database.GetFileByIDParams{
 		ID:     id,
@@ -63,7 +63,7 @@ func (s *Service) GetFileByID(ctx context.Context, id uuid.UUID) (database.File,
 	})
 }
 
-func (s *Service) GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error) {
+func (s *FileServiceImpl) GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error) {
 	file, err := s.queries.GetFileByNameInFolder(ctx, database.GetFileByNameInFolderParams{
 		FolderID: util.ToNullUUID(folderID),
 		Name:     name,
@@ -74,7 +74,7 @@ func (s *Service) GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID
 	return file, nil
 }
 
-func (s *Service) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([]database.File, error) {
+func (s *FileServiceImpl) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([]database.File, error) {
 	userID, _ := middleware.GetUserID(ctx)
 	files, err := s.queries.ListFilesInFolder(ctx, database.ListFilesInFolderParams{
 		UserID:   util.ToNullInt32(&userID),
@@ -87,7 +87,7 @@ func (s *Service) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([
 	return files, nil
 }
 
-func (s *Service) ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error) {
+func (s *FileServiceImpl) ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error) {
 	userID, _ := middleware.GetUserID(ctx)
 	rows, err := s.queries.ListFilesRecursive(ctx, database.ListFilesRecursiveParams{
 		UserID: util.ToNullInt32(&userID),
@@ -102,7 +102,7 @@ func (s *Service) ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Upload file
-func (s *Service) UploadFile(
+func (s *FileServiceImpl) UploadFile(
 	ctx context.Context,
 	folderID *uuid.UUID,
 	name string,
@@ -181,7 +181,7 @@ func (s *Service) UploadFile(
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Download file
-func (s *Service) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID) ([]FileDownload, error) {
+func (s *FileServiceImpl) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID) ([]FileDownload, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
 	if len(fileIDs) == 0 {
@@ -232,7 +232,7 @@ func (s *Service) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID) ([]Fil
 
 // --------------------------------------------------------------------------------------------------------------------------
 
-func (s *Service) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error {
+func (s *FileServiceImpl) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error {
 	userID, _ := middleware.GetUserID(ctx)
 
 	// 1. Fetch all files metadata first
@@ -278,7 +278,7 @@ func (s *Service) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error {
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Update methods
-func (s *Service) UpdateFileMetadata(
+func (s *FileServiceImpl) UpdateFileMetadata(
 	ctx context.Context,
 	fileID uuid.UUID,
 	sizeBytes int64,
@@ -302,7 +302,7 @@ func (s *Service) UpdateFileMetadata(
 	return nil
 }
 
-func (s *Service) UpdateFileParentAndPath(ctx context.Context, fileID uuid.UUID, folderID *uuid.UUID, filePath string) error {
+func (s *FileServiceImpl) UpdateFileParentAndPath(ctx context.Context, fileID uuid.UUID, folderID *uuid.UUID, filePath string) error {
 	userID, _ := middleware.GetUserID(ctx)
 	rows, err := s.queries.UpdateFileParentAndPath(ctx, database.UpdateFileParentAndPathParams{
 		ID:       fileID,
@@ -322,7 +322,7 @@ func (s *Service) UpdateFileParentAndPath(ctx context.Context, fileID uuid.UUID,
 	return nil
 }
 
-func (s *Service) UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, name string, filePath string) error {
+func (s *FileServiceImpl) UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, name string, filePath string) error {
 	userID, _ := middleware.GetUserID(ctx)
 	rows, err := s.queries.UpdateFileNameAndPath(ctx, database.UpdateFileNameAndPathParams{
 		ID:       fileID,
@@ -342,7 +342,7 @@ func (s *Service) UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, n
 	return nil
 }
 
-func (s *Service) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolderID *uuid.UUID, overwrite bool) error {
+func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolderID *uuid.UUID, overwrite bool) error {
 	userID, _ := middleware.GetUserID(ctx)
 	for _, fileID := range fileIDs {
 		file, err := s.GetFileByID(ctx, fileID)
@@ -400,7 +400,7 @@ func (s *Service) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolder
 }
 
 // Rename file with merge + overwrite logic
-func (s *Service) RenameFile(ctx context.Context, file database.File, newName string, overwrite bool) error {
+func (s *FileServiceImpl) RenameFile(ctx context.Context, file database.File, newName string, overwrite bool) error {
 	userID, _ := middleware.GetUserID(ctx)
 
 	if newName == "" {

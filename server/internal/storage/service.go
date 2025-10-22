@@ -2,20 +2,19 @@ package storage
 
 import (
 	"github.com/bellezhang119/cloud-storage/internal/database"
-	"github.com/bellezhang119/cloud-storage/internal/storage/file"
-	"github.com/bellezhang119/cloud-storage/internal/storage/folder"
 	"github.com/bellezhang119/cloud-storage/internal/storage/local"
+	"github.com/bellezhang119/cloud-storage/internal/storage/services"
 )
 
 type Service struct {
-	Files   *file.Service
-	Folders *folder.Service
+	Files   *services.FileServiceImpl
+	Folders *services.FolderServiceImpl
 	Local   local.Storage
 }
 
 func NewService(db *database.Queries, localStore local.Storage) *Service {
-	folderSvc := folder.NewService(db, localStore)
-	fileSvc := file.NewService(db, localStore)
+	folderSvc := services.NewFolderService(db, localStore)
+	fileSvc := services.NewFileService(db, localStore)
 
 	fileSvc.SetFolderService(folderSvc)
 	folderSvc.SetFileService(fileSvc)

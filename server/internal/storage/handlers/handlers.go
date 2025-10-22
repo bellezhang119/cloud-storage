@@ -10,11 +10,12 @@ import (
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/middleware"
+	"github.com/bellezhang119/cloud-storage/internal/storage/services"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 	"github.com/google/uuid"
 )
 
-type ServiceInterface interface {
+type FileServiceInterface interface {
 	GetFileByID(ctx context.Context, id uuid.UUID, userID int32) (database.File, error)
 	GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error)
 	ListFilesInFolder(ctx context.Context, userID int32, folderID *uuid.UUID) ([]database.File, error)
@@ -29,7 +30,7 @@ type ServiceInterface interface {
 		content io.Reader,
 		overwrite bool,
 	) (database.File, error)
-	DownloadFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32) ([]FileDownload, error)
+	DownloadFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32) ([]services.FileDownload, error)
 	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID, userID int32) error
 	UpdateFileMetadata(
 		ctx context.Context,
@@ -48,7 +49,9 @@ type DownloadRequest struct {
 	FileIDs []uuid.UUID `json:"file_ids"`
 }
 
-func GetFileByIDHandler(service ServiceInterface) http.HandlerFunc {
+// TODO: Require user id in path, also get user id from context and check if they are the same
+
+func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := middleware.GetUserID(r.Context())
 		if !ok {
@@ -78,7 +81,7 @@ func GetFileByIDHandler(service ServiceInterface) http.HandlerFunc {
 	}
 }
 
-func GetFileByNameInFolderHandler(service ServiceInterface) http.HandlerFunc {
+func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, ok := middleware.GetUserID(r.Context())
 		if !ok {
@@ -108,7 +111,7 @@ func GetFileByNameInFolderHandler(service ServiceInterface) http.HandlerFunc {
 	}
 }
 
-func UploadFileHandler(service ServiceInterface) http.HandlerFunc {
+func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := middleware.GetUserID(r.Context())
 		if !ok {
@@ -183,7 +186,7 @@ func UploadFileHandler(service ServiceInterface) http.HandlerFunc {
 	}
 }
 
-func DownloadFilesHandler(service ServiceInterface) http.HandlerFunc {
+func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Extract user ID from context
 		userID, ok := middleware.GetUserID(r.Context())
