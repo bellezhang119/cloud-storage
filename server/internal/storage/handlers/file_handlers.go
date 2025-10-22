@@ -1,4 +1,4 @@
-package storage
+package handlers
 
 import (
 	"archive/zip"
