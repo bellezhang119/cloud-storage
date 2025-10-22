@@ -12,24 +12,43 @@ import (
 	"github.com/google/uuid"
 )
 
-const canUserAccessFile = `-- name: CanUserAccessFile :one
-SELECT 1
-FROM files f
-LEFT JOIN file_shares fs ON fs.file_id = f.id
-WHERE f.id = $1 AND (f.user_id = $2 OR fs.shared_user_id = $2)
-LIMIT 1
+const checkUserFileAccess = `-- name: CheckUserFileAccess :one
+WITH RECURSIVE parent_folders AS (
+  SELECT f.id, f.parent_id
+  FROM folders f
+  WHERE f.id = (SELECT folder_id FROM files WHERE id = $1)
+  UNION ALL
+  SELECT f2.id, f2.parent_id
+  FROM folders f2
+  JOIN parent_folders pf ON f2.id = pf.parent_id
+)
+SELECT EXISTS (
+  -- Case 1: Direct file share
+  SELECT 1
+  FROM file_shares fsh
+  WHERE fsh.file_id = $1
+  AND fsh.shared_user_id = $2
+
+  UNION
+
+  -- Case 2: Inherited access from shared folder(s)
+  SELECT 1
+  FROM folder_shares fldrsh
+  WHERE fldrsh.shared_user_id = $2
+  AND fldrsh.folder_id IN (SELECT id FROM parent_folders)
+) AS has_access
 `
 
-type CanUserAccessFileParams struct {
-	ID     uuid.UUID
-	UserID sql.NullInt32
+type CheckUserFileAccessParams struct {
+	FileID       uuid.NullUUID
+	SharedUserID sql.NullInt32
 }
 
-func (q *Queries) CanUserAccessFile(ctx context.Context, arg CanUserAccessFileParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, canUserAccessFile, arg.ID, arg.UserID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
+func (q *Queries) CheckUserFileAccess(ctx context.Context, arg CheckUserFileAccessParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, checkUserFileAccess, arg.FileID, arg.SharedUserID)
+	var has_access bool
+	err := row.Scan(&has_access)
+	return has_access, err
 }
 
 const createFileShare = `-- name: CreateFileShare :one
@@ -102,6 +121,46 @@ func (q *Queries) ListFileShares(ctx context.Context, fileID uuid.NullUUID) ([]F
 	for rows.Next() {
 		var i FileShare
 		if err := rows.Scan(&i.FileID, &i.SharedUserID, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFilesSharedWithUser = `-- name: ListFilesSharedWithUser :many
+SELECT f.id, f.user_id, f.folder_id, f.name, f.file_path, f.size_bytes, f.mime_type, f.created_at, f.updated_at
+FROM file_shares fs
+JOIN files f ON f.id = fs.file_id
+WHERE fs.shared_user_id = $1
+`
+
+func (q *Queries) ListFilesSharedWithUser(ctx context.Context, sharedUserID sql.NullInt32) ([]File, error) {
+	rows, err := q.db.QueryContext(ctx, listFilesSharedWithUser, sharedUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []File
+	for rows.Next() {
+		var i File
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.FolderID,
+			&i.Name,
+			&i.FilePath,
+			&i.SizeBytes,
+			&i.MimeType,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

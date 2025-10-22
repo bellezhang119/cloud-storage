@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
-	"github.com/bellezhang119/cloud-storage/internal/storage"
+	"github.com/bellezhang119/cloud-storage/internal/storage/local"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 	"github.com/google/uuid"
 )
@@ -30,31 +30,29 @@ type Queries interface {
 type FileService interface {
 	UploadFile(
 		ctx context.Context,
-		userID int32,
 		folderID *uuid.UUID,
 		name string,
 		sizeBytes int64,
 		mimeType string,
 		content io.Reader,
+		overwrite bool,
 	) (database.File, error)
-	ListFilesRecursive(ctx context.Context, userID int32, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error)
+	ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error)
 	GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error)
 	UpdateFileMetadata(
 		ctx context.Context,
 		fileID uuid.UUID,
-		userID int32,
-		name *string,
-		filePath *string,
-		sizeBytes *int64,
-		mimeType *string,
+		sizeBytes int64,
+		mimeType string,
 	) error
-	DeleteFile(ctx context.Context, fileID uuid.UUID, userID int32) error
+	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error
+	UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, name string, filePath string) error
 }
 
 type Service struct {
-	queries     Queries
-	fileService FileService
-	storage     storage.Storage
+	queries Queries
+	files   FileService
+	local   local.Storage
 }
 
 type FolderUploadItem struct {
@@ -81,8 +79,12 @@ type UploadResult struct {
 	Conflicts   []UploadConflict `json:"conflicts"`   // List of conflicts (skipped files/folders)
 }
 
-func NewService(q Queries, fs FileService, s storage.Storage) *Service {
-	return &Service{queries: q, fileService: fs, storage: s}
+func NewService(q Queries, local local.Storage) *Service {
+	return &Service{queries: q, local: local}
+}
+
+func (s *Service) SetFileService(f FileService) {
+	s.files = f
 }
 
 // Getters
@@ -139,7 +141,7 @@ func (s *Service) CreateFolder(ctx context.Context, userID int32, name string, p
 	}
 
 	// 3. Create folder on disk
-	if err := s.storage.CreateDirectory(userID, path); err != nil {
+	if err := s.local.CreateDirectory(userID, path); err != nil {
 		// rollback DB record
 		_ = s.DeleteFolders(ctx, []uuid.UUID{folder.ID}, userID)
 		log.Printf("[WARN] rollback folder create failed (folder=%s): %v", folder.ID, err)
@@ -166,7 +168,7 @@ func (s *Service) GetZippedFolderForDownload(ctx context.Context, folderID uuid.
 	}
 
 	// 3. Stream zip into provided writer
-	if err := s.storage.ZipFolder(userID, folderPath, w); err != nil {
+	if err := s.local.ZipFolder(userID, folderPath, w); err != nil {
 		return database.Folder{}, fmt.Errorf("zipping folder: %w", err)
 	}
 
@@ -193,7 +195,7 @@ func (s *Service) GetZippedFoldersForDownload(ctx context.Context, folderIDs []u
 	}
 
 	// Stream all folders into zip
-	if err := s.storage.ZipMultipleFolders(userID, folderPaths, w); err != nil {
+	if err := s.local.ZipMultipleFolders(userID, folderPaths, w); err != nil {
 		return nil, err
 	}
 
@@ -247,13 +249,13 @@ func (s *Service) UploadFolder(
 		}
 
 		// --- Handle files ---
-		file, err := s.fileService.GetFileByNameInFolder(ctx, parentID, item.Name)
+		file, err := s.files.GetFileByNameInFolder(ctx, parentID, item.Name)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return result, fmt.Errorf("checking existing file: %w", err)
 		}
 
 		if file.ID != uuid.Nil && overwrite {
-			if err := s.fileService.DeleteFile(ctx, file.ID, userID); err != nil {
+			if err := s.files.DeleteFiles(ctx, []uuid.UUID{file.ID}); err != nil {
 				return result, fmt.Errorf("deleting existing file before overwrite: %w", err)
 			}
 			result.Overwritten = append(result.Overwritten, currentPath)
@@ -263,7 +265,7 @@ func (s *Service) UploadFolder(
 		}
 
 		// Upload file
-		_, err = s.fileService.UploadFile(ctx, userID, parentID, item.Name, item.SizeBytes, item.MimeType, item.Content)
+		_, err = s.files.UploadFile(ctx, parentID, item.Name, item.SizeBytes, item.MimeType, item.Content, overwrite)
 		if err != nil {
 			return result, fmt.Errorf("uploading file: %w", err)
 		}
@@ -308,7 +310,7 @@ func (s *Service) DeleteFolders(ctx context.Context, folderIDs []uuid.UUID, user
 
 	// 3. Delete directories from storage (best effort)
 	for _, p := range paths {
-		if err := s.storage.DeleteDirectory(userID, p.Path); err != nil {
+		if err := s.local.DeleteDirectory(userID, p.Path); err != nil {
 			// Log, don’t fail entire operation since DB is already committed
 			fmt.Printf("warning: deleted from DB but failed to remove folder %s: %v\n", p.Path, err)
 		}
@@ -431,7 +433,7 @@ func (s *Service) MoveFolders(ctx context.Context, folderIDs []uuid.UUID, userID
 			newPath = filepath.Join(parentPath, targetFolder.Name)
 		}
 
-		if err := s.storage.MoveDirectory(userID, oldPath, newPath, overwriteFiles); err != nil {
+		if err := s.local.MoveDirectory(userID, oldPath, newPath, overwriteFiles); err != nil {
 			_ = s.UpdateFoldersParent(ctx, []database.Folder{f}, userID, &f.ParentID.UUID)
 			return fmt.Errorf("moving folder %s on disk: %w", f.Name, err)
 		}
@@ -497,7 +499,7 @@ func (s *Service) RenameFolder(ctx context.Context, folderID uuid.UUID, newName 
 	}
 
 	// 4. Move folder on disk (merge if folder exists)
-	if err := s.storage.MoveDirectory(userID, oldPath, newPath, overwriteFiles); err != nil {
+	if err := s.local.MoveDirectory(userID, oldPath, newPath, overwriteFiles); err != nil {
 		// rollback metadata if needed
 		if targetFolder.ID == folder.ID {
 			_ = s.UpdateFolderMetadata(ctx, folderID, userID, folder.Name)
@@ -517,7 +519,7 @@ func (s *Service) RenameFolder(ctx context.Context, folderID uuid.UUID, newName 
 
 // Internal helpers
 func (s *Service) updateAllChildFilePaths(ctx context.Context, userID int32, folderID uuid.UUID, oldPath, newPath string) error {
-	files, err := s.fileService.ListFilesRecursive(ctx, userID, folderID)
+	files, err := s.files.ListFilesRecursive(ctx, folderID)
 	if err != nil {
 		return fmt.Errorf("listing files in folder: %w", err)
 	}
@@ -528,7 +530,7 @@ func (s *Service) updateAllChildFilePaths(ctx context.Context, userID int32, fol
 			return fmt.Errorf("calculating relative path for file %s: %w", f.FilePath, err)
 		}
 		newFilePath := filepath.Join(newPath, relPath)
-		if err := s.fileService.UpdateFileMetadata(ctx, f.FileID, userID, nil, &newFilePath, nil, nil); err != nil {
+		if err := s.files.UpdateFileNameAndPath(ctx, f.FileID, f.Name, newFilePath); err != nil {
 			return fmt.Errorf("updating file path in DB for file %s: %w", f.FileID, err)
 		}
 	}
