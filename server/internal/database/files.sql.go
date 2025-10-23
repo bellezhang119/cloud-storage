@@ -98,16 +98,17 @@ func (q *Queries) GetFileByID(ctx context.Context, arg GetFileByIDParams) (File,
 
 const getFileByNameInFolder = `-- name: GetFileByNameInFolder :one
 SELECT id, user_id, folder_id, name, file_path, size_bytes, mime_type, created_at, updated_at FROM files
-WHERE folder_id = $1 AND name = $2
+WHERE folder_id = $1 AND user_id = $2 AND name = $3
 `
 
 type GetFileByNameInFolderParams struct {
 	FolderID uuid.NullUUID
+	UserID   sql.NullInt32
 	Name     string
 }
 
 func (q *Queries) GetFileByNameInFolder(ctx context.Context, arg GetFileByNameInFolderParams) (File, error) {
-	row := q.db.QueryRowContext(ctx, getFileByNameInFolder, arg.FolderID, arg.Name)
+	row := q.db.QueryRowContext(ctx, getFileByNameInFolder, arg.FolderID, arg.UserID, arg.Name)
 	var i File
 	err := row.Scan(
 		&i.ID,

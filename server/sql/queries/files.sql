@@ -8,7 +8,7 @@ SELECT * FROM files WHERE id = $1 AND user_id = $2;
 
 -- name: GetFileByNameInFolder :one
 SELECT * FROM files
-WHERE folder_id = $1 AND name = $2;
+WHERE folder_id = $1 AND user_id = $2 AND name = $3;
 
 -- name: ListFilesInFolder :many
 SELECT *

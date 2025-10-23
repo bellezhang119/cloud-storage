@@ -19,23 +19,23 @@ import (
 )
 
 type FileServiceInterface interface {
-	GetFileByID(ctx context.Context, id uuid.UUID) (database.File, error)
-	GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error)
-	ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([]database.File, error)
-	ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error)
+	GetFileByID(ctx context.Context, id uuid.UUID, userID int32) (database.File, error)
+	GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, userID int32, name string) (database.File, error)
+	ListFilesInFolder(ctx context.Context, folderID *uuid.UUID, userID int32) ([]database.File, error)
 	UploadFile(
 		ctx context.Context,
 		folderID *uuid.UUID,
+		userID int32,
 		name string,
 		sizeBytes int64,
 		mimeType string,
 		content io.Reader,
 		overwrite bool,
 	) (database.File, error)
-	DownloadFiles(ctx context.Context, fileIDs []uuid.UUID) ([]services.FileDownload, error)
-	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error
-	MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolderID *uuid.UUID, overwrite bool) error
-	RenameFile(ctx context.Context, fileID uuid.UUID, newName string, overwrite bool) error
+	DownloadFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32) ([]services.FileDownload, error)
+	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID, userID int32) error
+	MoveFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32, destFolderID *uuid.UUID, overwrite bool) error
+	RenameFile(ctx context.Context, fileID uuid.UUID, userID int32, newName string, overwrite bool) error
 }
 
 type DownloadFilesRequest struct {
@@ -79,7 +79,7 @@ func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		file, err := service.GetFileByID(r.Context(), fileID)
+		file, err := service.GetFileByID(r.Context(), fileID, ctxUserID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -111,7 +111,7 @@ func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc
 			return
 		}
 
-		file, err := service.GetFileByNameInFolder(r.Context(), folderID, name)
+		file, err := service.GetFileByNameInFolder(r.Context(), folderID, ctxUserID, name)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -182,6 +182,7 @@ func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 		fileMeta, err := service.UploadFile(
 			r.Context(),
 			folderID,
+			ctxUserID,
 			name,
 			r.ContentLength,
 			mimeType,
@@ -220,7 +221,7 @@ func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// 3. Call service
-		downloads, err := service.DownloadFiles(r.Context(), req.FileIDs)
+		downloads, err := service.DownloadFiles(r.Context(), req.FileIDs, ctxUserID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -288,7 +289,7 @@ func DeleteFilesHandler(service FileServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		err := service.DeleteFiles(r.Context(), req.FileIDs)
+		err := service.DeleteFiles(r.Context(), req.FileIDs, ctxUserID)
 
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -326,7 +327,7 @@ func MoveFilesHandler(service FileServiceInterface) http.HandlerFunc {
 			destFolderID = &req.FolderID
 		}
 
-		if err := service.MoveFiles(r.Context(), req.FileIDs, destFolderID, req.Overwrite); err != nil {
+		if err := service.MoveFiles(r.Context(), req.FileIDs, ctxUserID, destFolderID, req.Overwrite); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -386,7 +387,7 @@ func RenameFileHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// 6. Call service to rename
-		if err := service.RenameFile(r.Context(), fileID, name, req.Overwrite); err != nil {
+		if err := service.RenameFile(r.Context(), fileID, ctxUserID, name, req.Overwrite); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to rename file: %v", err))
 			return
 		}

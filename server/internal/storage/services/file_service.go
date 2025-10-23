@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
-	"github.com/bellezhang119/cloud-storage/internal/middleware"
 	"github.com/bellezhang119/cloud-storage/internal/storage/local"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 	"github.com/google/uuid"
@@ -55,17 +54,17 @@ func (s *FileServiceImpl) SetFolderService(f FolderService) {
 }
 
 // Getters
-func (s *FileServiceImpl) GetFileByID(ctx context.Context, id uuid.UUID) (database.File, error) {
-	userID, _ := middleware.GetUserID(ctx)
+func (s *FileServiceImpl) GetFileByID(ctx context.Context, id uuid.UUID, userID int32) (database.File, error) {
 	return s.queries.GetFileByID(ctx, database.GetFileByIDParams{
 		ID:     id,
 		UserID: util.ToNullInt32(&userID),
 	})
 }
 
-func (s *FileServiceImpl) GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error) {
+func (s *FileServiceImpl) GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, userID int32, name string) (database.File, error) {
 	file, err := s.queries.GetFileByNameInFolder(ctx, database.GetFileByNameInFolderParams{
 		FolderID: util.ToNullUUID(folderID),
+		UserID:   util.ToNullInt32(&userID),
 		Name:     name,
 	})
 	if err != nil {
@@ -74,8 +73,7 @@ func (s *FileServiceImpl) GetFileByNameInFolder(ctx context.Context, folderID *u
 	return file, nil
 }
 
-func (s *FileServiceImpl) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([]database.File, error) {
-	userID, _ := middleware.GetUserID(ctx)
+func (s *FileServiceImpl) ListFilesInFolder(ctx context.Context, folderID *uuid.UUID, userID int32) ([]database.File, error) {
 	files, err := s.queries.ListFilesInFolder(ctx, database.ListFilesInFolderParams{
 		UserID:   util.ToNullInt32(&userID),
 		FolderID: util.ToNullUUID(folderID),
@@ -87,8 +85,7 @@ func (s *FileServiceImpl) ListFilesInFolder(ctx context.Context, folderID *uuid.
 	return files, nil
 }
 
-func (s *FileServiceImpl) ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error) {
-	userID, _ := middleware.GetUserID(ctx)
+func (s *FileServiceImpl) ListFilesRecursive(ctx context.Context, folderID uuid.UUID, userID int32) ([]database.ListFilesRecursiveRow, error) {
 	rows, err := s.queries.ListFilesRecursive(ctx, database.ListFilesRecursiveParams{
 		UserID: util.ToNullInt32(&userID),
 		ID:     folderID,
@@ -105,13 +102,13 @@ func (s *FileServiceImpl) ListFilesRecursive(ctx context.Context, folderID uuid.
 func (s *FileServiceImpl) UploadFile(
 	ctx context.Context,
 	folderID *uuid.UUID,
+	userID int32,
 	name string,
 	sizeBytes int64,
 	mimeType string,
 	content io.Reader,
 	overwrite bool,
 ) (database.File, error) {
-	userID, _ := middleware.GetUserID(ctx)
 	if name == "" {
 		return database.File{}, errors.New("file name is required")
 	}
@@ -139,7 +136,7 @@ func (s *FileServiceImpl) UploadFile(
 	}
 
 	// Check if a file with the same name exists
-	existingFile, err := s.GetFileByNameInFolder(ctx, folderID, name)
+	existingFile, err := s.GetFileByNameInFolder(ctx, folderID, userID, name)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return database.File{}, fmt.Errorf("checking existing file: %w", err)
 	}
@@ -147,7 +144,7 @@ func (s *FileServiceImpl) UploadFile(
 	if existingFile.ID != uuid.Nil {
 		if overwrite {
 			// Delete existing file
-			if err := s.DeleteFiles(ctx, []uuid.UUID{existingFile.ID}); err != nil {
+			if err := s.DeleteFiles(ctx, []uuid.UUID{existingFile.ID}, userID); err != nil {
 				return database.File{}, fmt.Errorf("deleting existing file for overwrite: %w", err)
 			}
 		} else {
@@ -171,7 +168,7 @@ func (s *FileServiceImpl) UploadFile(
 
 	// Save content to storage
 	if err := s.local.SaveFile(userID, filePath, content); err != nil {
-		_ = s.DeleteFiles(ctx, []uuid.UUID{fileMeta.ID}) // rollback DB
+		_ = s.DeleteFiles(ctx, []uuid.UUID{fileMeta.ID}, userID) // rollback DB
 		return database.File{}, fmt.Errorf("saving file: %w", err)
 	}
 
@@ -181,9 +178,7 @@ func (s *FileServiceImpl) UploadFile(
 // --------------------------------------------------------------------------------------------------------------------------
 
 // Download file
-func (s *FileServiceImpl) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID) ([]FileDownload, error) {
-	userID, _ := middleware.GetUserID(ctx)
-
+func (s *FileServiceImpl) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32) ([]FileDownload, error) {
 	if len(fileIDs) == 0 {
 		return nil, fmt.Errorf("no file IDs provided")
 	}
@@ -202,7 +197,7 @@ func (s *FileServiceImpl) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID
 
 	for _, fileID := range fileIDs {
 		// 1. Look up file in DB
-		fileMeta, err := s.GetFileByID(ctx, fileID)
+		fileMeta, err := s.GetFileByID(ctx, fileID, userID)
 		if err != nil {
 			return nil, fmt.Errorf("fetching file metadata for %s: %w", fileID, err)
 		}
@@ -232,13 +227,11 @@ func (s *FileServiceImpl) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID
 
 // --------------------------------------------------------------------------------------------------------------------------
 
-func (s *FileServiceImpl) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error {
-	userID, _ := middleware.GetUserID(ctx)
-
+func (s *FileServiceImpl) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID, userID int32) error {
 	// 1. Fetch all files metadata first
 	var files []database.File
 	for _, id := range filesIDs {
-		file, err := s.GetFileByID(ctx, id)
+		file, err := s.GetFileByID(ctx, id, userID)
 		if err != nil {
 			return fmt.Errorf("fetching file metadata for %s: %w", id, err)
 		}
@@ -281,10 +274,10 @@ func (s *FileServiceImpl) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID)
 func (s *FileServiceImpl) UpdateFileMetadata(
 	ctx context.Context,
 	fileID uuid.UUID,
+	userID int32,
 	sizeBytes int64,
 	mimeType string,
 ) error {
-	userID, _ := middleware.GetUserID(ctx)
 	rows, err := s.queries.UpdateFileMetadata(ctx, database.UpdateFileMetadataParams{
 		ID:        fileID,
 		UserID:    util.ToNullInt32(&userID),
@@ -302,8 +295,7 @@ func (s *FileServiceImpl) UpdateFileMetadata(
 	return nil
 }
 
-func (s *FileServiceImpl) UpdateFileParentAndPath(ctx context.Context, fileID uuid.UUID, folderID *uuid.UUID, filePath string) error {
-	userID, _ := middleware.GetUserID(ctx)
+func (s *FileServiceImpl) UpdateFileParentAndPath(ctx context.Context, fileID uuid.UUID, userID int32, folderID *uuid.UUID, filePath string) error {
 	rows, err := s.queries.UpdateFileParentAndPath(ctx, database.UpdateFileParentAndPathParams{
 		ID:       fileID,
 		UserID:   util.ToNullInt32(&userID),
@@ -322,8 +314,7 @@ func (s *FileServiceImpl) UpdateFileParentAndPath(ctx context.Context, fileID uu
 	return nil
 }
 
-func (s *FileServiceImpl) UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, name string, filePath string) error {
-	userID, _ := middleware.GetUserID(ctx)
+func (s *FileServiceImpl) UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, userID int32, name string, filePath string) error {
 	rows, err := s.queries.UpdateFileNameAndPath(ctx, database.UpdateFileNameAndPathParams{
 		ID:       fileID,
 		UserID:   util.ToNullInt32(&userID),
@@ -342,9 +333,7 @@ func (s *FileServiceImpl) UpdateFileNameAndPath(ctx context.Context, fileID uuid
 	return nil
 }
 
-func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolderID *uuid.UUID, overwrite bool) error {
-	userID, _ := middleware.GetUserID(ctx)
-
+func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32, destFolderID *uuid.UUID, overwrite bool) error {
 	// Validate folder (if not root)
 	var destFolderPath string
 	if destFolderID != nil {
@@ -356,7 +345,7 @@ func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, de
 	}
 
 	for _, fileID := range fileIDs {
-		file, err := s.GetFileByID(ctx, fileID)
+		file, err := s.GetFileByID(ctx, fileID, userID)
 		if err != nil {
 			return fmt.Errorf("file %v not found: %w", fileID, err)
 		}
@@ -371,7 +360,7 @@ func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, de
 		}
 
 		// Check for conflict
-		existingFile, err := s.GetFileByNameInFolder(ctx, destFolderID, file.Name)
+		existingFile, err := s.GetFileByNameInFolder(ctx, destFolderID, userID, file.Name)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("checking existing file %v: %w", fileID, err)
 		}
@@ -379,13 +368,13 @@ func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, de
 			if !overwrite {
 				return fmt.Errorf("file %s already exists in destination", file.Name)
 			}
-			if err := s.DeleteFiles(ctx, []uuid.UUID{existingFile.ID}); err != nil {
+			if err := s.DeleteFiles(ctx, []uuid.UUID{existingFile.ID}, userID); err != nil {
 				return fmt.Errorf("failed to overwrite existing file %v: %w", existingFile.ID, err)
 			}
 		}
 
 		// Update DB
-		if err := s.UpdateFileParentAndPath(ctx, file.ID, destFolderID, newPath); err != nil {
+		if err := s.UpdateFileParentAndPath(ctx, file.ID, userID, destFolderID, newPath); err != nil {
 			return fmt.Errorf("updating DB for file %v: %w", fileID, err)
 		}
 
@@ -396,7 +385,7 @@ func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, de
 			if file.FolderID.Valid {
 				oldFolderID = &file.FolderID.UUID
 			}
-			if rbErr := s.UpdateFileParentAndPath(ctx, file.ID, oldFolderID, file.FilePath); rbErr != nil {
+			if rbErr := s.UpdateFileParentAndPath(ctx, file.ID, userID, oldFolderID, file.FilePath); rbErr != nil {
 				return fmt.Errorf("storage move failed for %v (%v), rollback also failed: %v", fileID, err, rbErr)
 			}
 			return fmt.Errorf("moving file %v on disk: %w", fileID, err)
@@ -407,10 +396,8 @@ func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, de
 }
 
 // Rename file with merge + overwrite logic
-func (s *FileServiceImpl) RenameFile(ctx context.Context, fileID uuid.UUID, newName string, overwrite bool) error {
-	userID, _ := middleware.GetUserID(ctx)
-
-	file, err := s.GetFileByID(ctx, fileID)
+func (s *FileServiceImpl) RenameFile(ctx context.Context, fileID uuid.UUID, userID int32, newName string, overwrite bool) error {
+	file, err := s.GetFileByID(ctx, fileID, userID)
 
 	if err != nil {
 		return fmt.Errorf("failed to fetch file: %w", err)
@@ -427,14 +414,14 @@ func (s *FileServiceImpl) RenameFile(ctx context.Context, fileID uuid.UUID, newN
 
 	// Check for existing file
 	destFolderID := file.FolderID.UUID
-	existingFile, err := s.GetFileByNameInFolder(ctx, &destFolderID, newName)
+	existingFile, err := s.GetFileByNameInFolder(ctx, &destFolderID, userID, newName)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("checking existing file: %w", err)
 	}
 
 	if existingFile.ID != uuid.Nil {
 		if overwrite {
-			if err := s.DeleteFiles(ctx, []uuid.UUID{existingFile.ID}); err != nil {
+			if err := s.DeleteFiles(ctx, []uuid.UUID{existingFile.ID}, userID); err != nil {
 				return fmt.Errorf("deleting existing file for overwrite: %w", err)
 			}
 		} else {
@@ -443,13 +430,13 @@ func (s *FileServiceImpl) RenameFile(ctx context.Context, fileID uuid.UUID, newN
 	}
 
 	// Update DB
-	if err := s.UpdateFileNameAndPath(ctx, file.ID, newName, newPath); err != nil {
+	if err := s.UpdateFileNameAndPath(ctx, file.ID, userID, newName, newPath); err != nil {
 		return fmt.Errorf("updating file name in DB: %w", err)
 	}
 
 	// Rename in storage
 	if err := s.local.MoveFile(userID, oldPath, newPath); err != nil {
-		rollbackErr := s.UpdateFileNameAndPath(ctx, file.ID, file.Name, oldPath)
+		rollbackErr := s.UpdateFileNameAndPath(ctx, file.ID, userID, file.Name, oldPath)
 		if rollbackErr != nil {
 			return fmt.Errorf("storage rename failed (%v), rollback also failed: %v", err, rollbackErr)
 		}
