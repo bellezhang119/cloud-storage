@@ -261,15 +261,15 @@ func (s *FileServiceImpl) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID)
 	}
 
 	// 3. Delete files from storage
-	var storageErrs []string
+	var failed []string
 	for _, file := range files {
 		if err := s.local.DeleteFile(userID, file.FilePath); err != nil {
-			storageErrs = append(storageErrs, fmt.Sprintf("%s: %v", file.Name, err))
+			failed = append(failed, fmt.Sprintf("%s: %v", file.Name, err))
 		}
 	}
 
-	if len(storageErrs) > 0 {
-		return fmt.Errorf("some files removed from DB but failed to delete from storage: %s", strings.Join(storageErrs, "; "))
+	if len(failed) > 0 {
+		return fmt.Errorf("some files removed from DB but failed to delete from storage: %s", strings.Join(failed, "; "))
 	}
 
 	return nil
@@ -344,53 +344,60 @@ func (s *FileServiceImpl) UpdateFileNameAndPath(ctx context.Context, fileID uuid
 
 func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolderID *uuid.UUID, overwrite bool) error {
 	userID, _ := middleware.GetUserID(ctx)
+
+	// Validate folder (if not root)
+	var destFolderPath string
+	if destFolderID != nil {
+		var err error
+		destFolderPath, err = s.folders.GetFolderFullPath(ctx, *destFolderID, userID)
+		if err != nil {
+			return fmt.Errorf("destination folder invalid: %w", err)
+		}
+	}
+
 	for _, fileID := range fileIDs {
 		file, err := s.GetFileByID(ctx, fileID)
 		if err != nil {
 			return fmt.Errorf("file %v not found: %w", fileID, err)
 		}
+		if file.UserID.Int32 != userID {
+			return fmt.Errorf("unauthorized to move file %v", fileID)
+		}
 
-		// Build new relative path
+		// Build new path
 		newPath := file.Name
 		if destFolderID != nil {
-			destFolderPath, err := s.folders.GetFolderFullPath(ctx, *destFolderID, userID)
-			if err != nil {
-				return fmt.Errorf("cannot build folder path for file %v: %w", fileID, err)
-			}
 			newPath = filepath.Join(destFolderPath, file.Name)
 		}
 
-		// Check for existing file conflict
+		// Check for conflict
 		existingFile, err := s.GetFileByNameInFolder(ctx, destFolderID, file.Name)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("checking existing file %v: %w", fileID, err)
 		}
-
 		if existingFile.ID != uuid.Nil {
 			if !overwrite {
 				return fmt.Errorf("file %s already exists in destination", file.Name)
 			}
-			// Delete existing file if overwrite is true
 			if err := s.DeleteFiles(ctx, []uuid.UUID{existingFile.ID}); err != nil {
-				return fmt.Errorf("failed to delete existing file %v for overwrite: %w", existingFile.ID, err)
+				return fmt.Errorf("failed to overwrite existing file %v: %w", existingFile.ID, err)
 			}
 		}
 
-		// Update DB first
+		// Update DB
 		if err := s.UpdateFileParentAndPath(ctx, file.ID, destFolderID, newPath); err != nil {
-			return fmt.Errorf("updating file path in DB for %v: %w", fileID, err)
+			return fmt.Errorf("updating DB for file %v: %w", fileID, err)
 		}
 
-		// Move in storage
+		// Move storage
 		if err := s.local.MoveFile(userID, file.FilePath, newPath); err != nil {
+			// rollback DB
 			var oldFolderID *uuid.UUID
 			if file.FolderID.Valid {
 				oldFolderID = &file.FolderID.UUID
 			}
-			// rollback DB if storage move fails
-			rollbackErr := s.UpdateFileParentAndPath(ctx, file.ID, oldFolderID, file.FilePath)
-			if rollbackErr != nil {
-				return fmt.Errorf("storage move failed for %v (%v), rollback also failed: %v", fileID, err, rollbackErr)
+			if rbErr := s.UpdateFileParentAndPath(ctx, file.ID, oldFolderID, file.FilePath); rbErr != nil {
+				return fmt.Errorf("storage move failed for %v (%v), rollback also failed: %v", fileID, err, rbErr)
 			}
 			return fmt.Errorf("moving file %v on disk: %w", fileID, err)
 		}
@@ -400,11 +407,13 @@ func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, de
 }
 
 // Rename file with merge + overwrite logic
-func (s *FileServiceImpl) RenameFile(ctx context.Context, file database.File, newName string, overwrite bool) error {
+func (s *FileServiceImpl) RenameFile(ctx context.Context, fileID uuid.UUID, newName string, overwrite bool) error {
 	userID, _ := middleware.GetUserID(ctx)
 
-	if newName == "" {
-		return errors.New("new file name is required")
+	file, err := s.GetFileByID(ctx, fileID)
+
+	if err != nil {
+		return fmt.Errorf("failed to fetch file: %w", err)
 	}
 
 	oldPath := file.FilePath

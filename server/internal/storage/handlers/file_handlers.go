@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/middleware"
@@ -16,13 +19,12 @@ import (
 )
 
 type FileServiceInterface interface {
-	GetFileByID(ctx context.Context, id uuid.UUID, userID int32) (database.File, error)
+	GetFileByID(ctx context.Context, id uuid.UUID) (database.File, error)
 	GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error)
-	ListFilesInFolder(ctx context.Context, userID int32, folderID *uuid.UUID) ([]database.File, error)
-	ListFilesRecursive(ctx context.Context, userID int32, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error)
+	ListFilesInFolder(ctx context.Context, folderID *uuid.UUID) ([]database.File, error)
+	ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error)
 	UploadFile(
 		ctx context.Context,
-		userID int32,
 		folderID *uuid.UUID,
 		name string,
 		sizeBytes int64,
@@ -30,32 +32,38 @@ type FileServiceInterface interface {
 		content io.Reader,
 		overwrite bool,
 	) (database.File, error)
-	DownloadFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32) ([]services.FileDownload, error)
-	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID, userID int32) error
-	UpdateFileMetadata(
-		ctx context.Context,
-		fileID uuid.UUID,
-		userID int32,
-		sizeBytes int64,
-		mimeType string,
-	) error
-	UpdateFileParentAndPath(ctx context.Context, fileID uuid.UUID, userID int32, folderID *uuid.UUID, filePath string) error
-	UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, userID int32, name string, filePath string) error
-	MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolderID *uuid.UUID, userID int32, overwrite bool) error
-	RenameFile(ctx context.Context, file database.File, newName string, userID int32, overwrite bool) error
+	DownloadFiles(ctx context.Context, fileIDs []uuid.UUID) ([]services.FileDownload, error)
+	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error
+	MoveFiles(ctx context.Context, fileIDs []uuid.UUID, destFolderID *uuid.UUID, overwrite bool) error
+	RenameFile(ctx context.Context, fileID uuid.UUID, newName string, overwrite bool) error
 }
 
-type DownloadRequest struct {
+type DownloadFilesRequest struct {
 	FileIDs []uuid.UUID `json:"file_ids"`
 }
 
-// TODO: Require user id in path, also get user id from context and check if they are the same
+type DeleteFilesRequest struct {
+	FileIDs []uuid.UUID `json:"file_ids"`
+}
+
+type MoveFilesRequest struct {
+	FileIDs   []uuid.UUID `json:"file_ids"`
+	FolderID  uuid.UUID   `json:"folder_id"`
+	Overwrite bool        `json:"overwrite"`
+}
+
+type RenameFileRequest struct {
+	Name      string `json:"name"`
+	Overwrite bool   `json:"overwrite"`
+}
 
 func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := middleware.GetUserID(r.Context())
-		if !ok {
-			util.RespondWithError(w, http.StatusUnauthorized, "Unauthorized user")
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
 		}
 
@@ -71,7 +79,7 @@ func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		file, err := service.GetFileByID(r.Context(), fileID, userID)
+		file, err := service.GetFileByID(r.Context(), fileID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -83,9 +91,11 @@ func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
 
 func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, ok := middleware.GetUserID(r.Context())
-		if !ok {
-			util.RespondWithError(w, http.StatusUnauthorized, "Unauthorized user")
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
 		}
 
@@ -113,9 +123,11 @@ func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc
 
 func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := middleware.GetUserID(r.Context())
-		if !ok {
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
 		}
 
@@ -163,13 +175,12 @@ func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 				}
 			}
 
-			fmt.Printf("Finished reading upload stream: %d bytes from user %d\n", total, userID)
+			fmt.Printf("Finished reading upload stream: %d bytes from user %d\n", total, ctxUserID)
 		}()
 
 		// Now pass the pipe reader to the service
 		fileMeta, err := service.UploadFile(
 			r.Context(),
-			int32(userID),
 			folderID,
 			name,
 			r.ContentLength,
@@ -189,14 +200,16 @@ func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Extract user ID from context
-		userID, ok := middleware.GetUserID(r.Context())
-		if !ok {
-			util.RespondWithError(w, http.StatusUnauthorized, "Invalid user ID")
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
 		}
 
 		// 2. Parse JSON body
-		var req DownloadRequest
+		var req DownloadFilesRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
 			return
@@ -207,13 +220,13 @@ func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// 3. Call service
-		downloads, err := service.DownloadFiles(r.Context(), req.FileIDs, userID)
+		downloads, err := service.DownloadFiles(r.Context(), req.FileIDs)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		// 4. If only one file → download directly
+		// 4. If only one file - download directly
 		if len(downloads) == 1 {
 			file := downloads[0]
 			defer file.Content.Close()
@@ -224,6 +237,8 @@ func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 				}
 				return "application/octet-stream"
 			}())
+
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", file.File.SizeBytes))
 			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, file.File.Name))
 			if _, err := io.Copy(w, file.Content); err != nil {
 				util.RespondWithError(w, http.StatusInternalServerError, "Error streaming file")
@@ -232,7 +247,7 @@ func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		// 5. If multiple files → stream as ZIP archive
+		// 5. If multiple files - stream as ZIP archive
 		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", "attachment; filename=files.zip")
 
@@ -250,5 +265,135 @@ func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 				fmt.Printf("Error writing file %s to zip: %v\n", f.File.Name, err)
 			}
 		}
+	}
+}
+
+func DeleteFilesHandler(service FileServiceInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+			return
+		}
+
+		var req DeleteFilesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		if len(req.FileIDs) == 0 {
+			util.RespondWithError(w, http.StatusBadRequest, "No file IDs provided")
+			return
+		}
+
+		err := service.DeleteFiles(r.Context(), req.FileIDs)
+
+		if err != nil {
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		util.RespondWithJSON(w, http.StatusOK, "Files deleted")
+	}
+}
+
+func MoveFilesHandler(service FileServiceInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract user ID from context
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+			return
+		}
+
+		// Parse request
+		var req MoveFilesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		if len(req.FileIDs) == 0 {
+			util.RespondWithError(w, http.StatusBadRequest, "No file IDs provided")
+			return
+		}
+
+		// Call service
+		var destFolderID *uuid.UUID
+		if req.FolderID != uuid.Nil {
+			destFolderID = &req.FolderID
+		}
+
+		if err := service.MoveFiles(r.Context(), req.FileIDs, destFolderID, req.Overwrite); err != nil {
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		util.RespondWithJSON(w, http.StatusOK, "Files moved")
+	}
+}
+
+func RenameFileHandler(service FileServiceInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Extract user ID from context and path
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+			return
+		}
+
+		// 2. Get file ID from path (assuming /api/user/{user_id}/file/{file_id}/rename)
+		fileIDStr := r.PathValue("file_id")
+		fileID, err := uuid.Parse(fileIDStr)
+		if err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid file ID")
+			return
+		}
+
+		// 3. Parse request body
+		var req RenameFileRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			util.RespondWithError(w, http.StatusBadRequest, "New file name cannot be empty")
+			return
+		}
+
+		// 4. Check for invalid characters
+		if strings.ContainsAny(name, "/\\") {
+			util.RespondWithError(w, http.StatusBadRequest, "File name cannot contain path separators")
+			return
+		}
+
+		validName := regexp.MustCompile(`^[\w\-. ]+$`)
+		if !validName.MatchString(name) {
+			util.RespondWithError(w, http.StatusBadRequest, "File name contains invalid characters")
+			return
+		}
+
+		// 5. ensure the file has an extension
+		if filepath.Ext(name) == "" {
+			util.RespondWithError(w, http.StatusBadRequest, "File must have an extension")
+			return
+		}
+
+		// 6. Call service to rename
+		if err := service.RenameFile(r.Context(), fileID, name, req.Overwrite); err != nil {
+			util.RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to rename file: %v", err))
+			return
+		}
+
+		util.RespondWithJSON(w, http.StatusOK, map[string]string{
+			"message":  "File renamed successfully",
+			"new_name": name,
+		})
 	}
 }
