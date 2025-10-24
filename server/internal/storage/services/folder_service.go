@@ -31,22 +31,24 @@ type FileService interface {
 	UploadFile(
 		ctx context.Context,
 		folderID *uuid.UUID,
+		userID int32,
 		name string,
 		sizeBytes int64,
 		mimeType string,
 		content io.Reader,
 		overwrite bool,
 	) (database.File, error)
-	ListFilesRecursive(ctx context.Context, folderID uuid.UUID) ([]database.ListFilesRecursiveRow, error)
-	GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, name string) (database.File, error)
+	ListFilesRecursive(ctx context.Context, folderID uuid.UUID, userID int32) ([]database.ListFilesRecursiveRow, error)
+	GetFileByNameInFolder(ctx context.Context, folderID *uuid.UUID, userID int32, name string) (database.File, error)
 	UpdateFileMetadata(
 		ctx context.Context,
 		fileID uuid.UUID,
+		userID int32,
 		sizeBytes int64,
 		mimeType string,
 	) error
-	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID) error
-	UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, name string, filePath string) error
+	DeleteFiles(ctx context.Context, filesIDs []uuid.UUID, userID int32) error
+	UpdateFileNameAndPath(ctx context.Context, fileID uuid.UUID, userID int32, name string, filePath string) error
 }
 
 type FolderServiceImpl struct {
@@ -219,13 +221,13 @@ func (s *FolderServiceImpl) UploadFolder(
 		}
 
 		// --- Handle files ---
-		file, err := s.files.GetFileByNameInFolder(ctx, parentID, item.Name)
+		file, err := s.files.GetFileByNameInFolder(ctx, parentID, userID, item.Name)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return result, fmt.Errorf("checking existing file: %w", err)
 		}
 
 		if file.ID != uuid.Nil && overwrite {
-			if err := s.files.DeleteFiles(ctx, []uuid.UUID{file.ID}); err != nil {
+			if err := s.files.DeleteFiles(ctx, []uuid.UUID{file.ID}, userID); err != nil {
 				return result, fmt.Errorf("deleting existing file before overwrite: %w", err)
 			}
 			result.Overwritten = append(result.Overwritten, currentPath)
@@ -235,7 +237,7 @@ func (s *FolderServiceImpl) UploadFolder(
 		}
 
 		// Upload file
-		_, err = s.files.UploadFile(ctx, parentID, item.Name, item.SizeBytes, item.MimeType, item.Content, overwrite)
+		_, err = s.files.UploadFile(ctx, parentID, userID, item.Name, item.SizeBytes, item.MimeType, item.Content, overwrite)
 		if err != nil {
 			return result, fmt.Errorf("uploading file: %w", err)
 		}
@@ -482,7 +484,7 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 
 // updateAllChildFilePaths internal helper
 func (s *FolderServiceImpl) updateAllChildFilePaths(ctx context.Context, userID int32, folderID uuid.UUID, oldPath, newPath string) error {
-	files, err := s.files.ListFilesRecursive(ctx, folderID)
+	files, err := s.files.ListFilesRecursive(ctx, folderID, userID)
 	if err != nil {
 		return fmt.Errorf("listing files in folder: %w", err)
 	}
@@ -493,7 +495,7 @@ func (s *FolderServiceImpl) updateAllChildFilePaths(ctx context.Context, userID 
 			return fmt.Errorf("calculating relative path for file %s: %w", f.FilePath, err)
 		}
 		newFilePath := filepath.Join(newPath, relPath)
-		if err := s.files.UpdateFileNameAndPath(ctx, f.FileID, f.Name, newFilePath); err != nil {
+		if err := s.files.UpdateFileNameAndPath(ctx, f.FileID, userID, f.Name, newFilePath); err != nil {
 			return fmt.Errorf("updating file path in DB for file %s: %w", f.FileID, err)
 		}
 	}
