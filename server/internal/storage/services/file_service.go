@@ -53,7 +53,6 @@ func (s *FileServiceImpl) SetFolderService(f FolderService) {
 	s.folders = f
 }
 
-// Getters
 func (s *FileServiceImpl) GetFileByID(ctx context.Context, id uuid.UUID, userID int32) (database.File, error) {
 	return s.queries.GetFileByID(ctx, database.GetFileByIDParams{
 		ID:     id,
@@ -96,9 +95,6 @@ func (s *FileServiceImpl) ListFilesRecursive(ctx context.Context, folderID uuid.
 	return rows, nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
-// Upload file
 func (s *FileServiceImpl) UploadFile(
 	ctx context.Context,
 	folderID *uuid.UUID,
@@ -175,9 +171,6 @@ func (s *FileServiceImpl) UploadFile(
 	return fileMeta, nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
-// Download file
 func (s *FileServiceImpl) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID, userID int32) ([]FileDownload, error) {
 	if len(fileIDs) == 0 {
 		return nil, fmt.Errorf("no file IDs provided")
@@ -225,8 +218,6 @@ func (s *FileServiceImpl) DownloadFiles(ctx context.Context, fileIDs []uuid.UUID
 	return downloads, nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
 func (s *FileServiceImpl) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID, userID int32) error {
 	// 1. Fetch all files metadata first
 	var files []database.File
@@ -268,9 +259,6 @@ func (s *FileServiceImpl) DeleteFiles(ctx context.Context, filesIDs []uuid.UUID,
 	return nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
-// Update methods
 func (s *FileServiceImpl) UpdateFileMetadata(
 	ctx context.Context,
 	fileID uuid.UUID,
@@ -395,7 +383,7 @@ func (s *FileServiceImpl) MoveFiles(ctx context.Context, fileIDs []uuid.UUID, us
 	return nil
 }
 
-// Rename file with merge + overwrite logic
+// RenameFile Rename file with merge + overwrite logic
 func (s *FileServiceImpl) RenameFile(ctx context.Context, fileID uuid.UUID, userID int32, newName string, overwrite bool) error {
 	file, err := s.GetFileByID(ctx, fileID, userID)
 
@@ -445,5 +433,3 @@ func (s *FileServiceImpl) RenameFile(ctx context.Context, fileID uuid.UUID, user
 
 	return nil
 }
-
-// --------------------------------------------------------------------------------------------------------------------------

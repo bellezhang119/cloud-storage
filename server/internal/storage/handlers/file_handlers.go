@@ -48,7 +48,6 @@ type DeleteFilesRequest struct {
 
 type MoveFilesRequest struct {
 	FileIDs   []uuid.UUID `json:"file_ids"`
-	FolderID  uuid.UUID   `json:"folder_id"`
 	Overwrite bool        `json:"overwrite"`
 }
 
@@ -99,7 +98,7 @@ func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc
 			return
 		}
 
-		folderID, err := util.ParseOptionalUUID((r.URL.Query().Get("folder_id")))
+		folderID, err := util.ParseOptionalUUID(r.URL.Query().Get("folder_id"))
 		if err != nil {
 			util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID")
 			return
@@ -121,8 +120,47 @@ func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc
 	}
 }
 
+// ListFilesInFolderHandler make 2 routes for root folder and normal folder
+func ListFilesInFolderHandler(service FileServiceInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if string(ctxUserID) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		}
+
+		// If client is using route where no path value of folder_id is defined, folderIDStr = "",
+		// and folderID = nil
+		folderIDStr := r.PathValue("folder_id")
+
+		var folderID *uuid.UUID
+		if folderIDStr != "" {
+			id, err := uuid.Parse(folderIDStr)
+			if err != nil {
+				util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID format")
+				return
+			}
+
+			if id != uuid.Nil {
+				folderID = &id
+			}
+		}
+
+		folders, err := service.ListFilesInFolder(r.Context(), folderID, ctxUserID)
+		if err != nil {
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		util.RespondWithJSON(w, http.StatusOK, folders)
+
+	}
+}
+
 func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract user ID from context
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
 
@@ -131,62 +169,61 @@ func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		folderID, err := util.ParseOptionalUUID((r.URL.Query().Get("folder_id")))
-		if err != nil {
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID")
-			return
-		}
-
-		name := r.URL.Query().Get("name")
-		if name == "" {
-			util.RespondWithError(w, http.StatusBadRequest, "File name is required")
-			return
-		}
-
-		mimeType := r.Header.Get("Content-Type")
-		overwrite := r.URL.Query().Get("overwrite") == "true"
-
-		// Create a pipe to stream chunks into service.SaveFile
-		pr, pw := io.Pipe()
-
-		// Launch a goroutine to read from the request in chunks and write to the pipe
-		go func() {
-			defer pw.Close()
-
-			const chunkSize = 64 * 1024 // 64 KB
-			buf := make([]byte, chunkSize)
-			var total int64
-
-			for {
-				n, err := r.Body.Read(buf)
-				if n > 0 {
-					total += int64(n)
-					if _, writeErr := pw.Write(buf[:n]); writeErr != nil {
-						fmt.Printf("Upload pipe write error: %v\n", writeErr)
-						return
-					}
-				}
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					fmt.Printf("Upload read error: %v\n", err)
-					return
-				}
+		// If client is using route where no path value of parent_id is defined, parentIDStr = "",
+		// and parentID = nil
+		parentIDStr := r.PathValue("parent_id")
+		var parentID *uuid.UUID
+		if parentIDStr != "" {
+			id, err := uuid.Parse(parentIDStr)
+			if err != nil {
+				util.RespondWithError(w, http.StatusBadRequest, "Invalid parent ID format")
+				return
 			}
+			if id != uuid.Nil {
+				parentID = &id
+			}
+		}
 
-			fmt.Printf("Finished reading upload stream: %d bytes from user %d\n", total, ctxUserID)
-		}()
+		// Parse multipart form (limit set to 100MB here)
+		err := r.ParseMultipartForm(100 << 20)
+		if err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Failed to parse multipart form")
+			return
+		}
 
-		// Now pass the pipe reader to the service
+		// Extract file from form data
+		file, fileHeader, err := r.FormFile("file")
+		if err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "File not provided")
+			return
+		}
+		defer file.Close()
+
+		// Get optional overwrite flag (from form or query param)
+		overwrite := r.FormValue("overwrite") == "true"
+
+		// Determine MIME type (fallback to binary if missing)
+		mimeType := fileHeader.Header.Get("Content-Type")
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+
+		// Get filename
+		name := fileHeader.Filename
+		if name == "" {
+			util.RespondWithError(w, http.StatusBadRequest, "File name missing in upload")
+			return
+		}
+
+		// Call service to handle the actual upload
 		fileMeta, err := service.UploadFile(
 			r.Context(),
-			folderID,
+			parentID,
 			ctxUserID,
 			name,
-			r.ContentLength,
+			fileHeader.Size,
 			mimeType,
-			pr,
+			file,
 			overwrite,
 		)
 		if err != nil {
@@ -304,10 +341,26 @@ func MoveFilesHandler(service FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract user ID from context
 		ctxUserID, _ := middleware.GetUserID(r.Context())
+
 		pathUserID := r.PathValue("user_id")
 		if string(ctxUserID) != pathUserID {
 			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
+		}
+
+		folderIDStr := r.PathValue("folder_id")
+
+		var folderID *uuid.UUID
+		if folderIDStr != "" {
+			id, err := uuid.Parse(folderIDStr)
+			if err != nil {
+				util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID format")
+				return
+			}
+
+			if id != uuid.Nil {
+				folderID = &id
+			}
 		}
 
 		// Parse request
@@ -322,12 +375,7 @@ func MoveFilesHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// Call service
-		var destFolderID *uuid.UUID
-		if req.FolderID != uuid.Nil {
-			destFolderID = &req.FolderID
-		}
-
-		if err := service.MoveFiles(r.Context(), req.FileIDs, ctxUserID, destFolderID, req.Overwrite); err != nil {
+		if err := service.MoveFiles(r.Context(), req.FileIDs, ctxUserID, folderID, req.Overwrite); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

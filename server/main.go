@@ -24,7 +24,10 @@ func main() {
 	userService := user.NewService(queries)
 	authService := auth.NewService(queries, userService)
 
-	godotenv.Load(".env")
+	err = godotenv.Load(".env")
+	if err != nil {
+		return
+	}
 
 	portString := os.Getenv("PORT")
 

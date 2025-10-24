@@ -87,7 +87,6 @@ func (s *FolderServiceImpl) SetFileService(f FileService) {
 	s.files = f
 }
 
-// Getters
 func (s *FolderServiceImpl) GetFolderByID(ctx context.Context, folderID uuid.UUID, userID int32) (database.Folder, error) {
 	return s.queries.GetFolderByID(ctx, database.GetFolderByIDParams{
 		ID:     folderID,
@@ -117,9 +116,6 @@ func (s *FolderServiceImpl) GetFolderByNameInParent(ctx context.Context, userID 
 	})
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
-// Create Folder
 func (s *FolderServiceImpl) CreateFolder(ctx context.Context, userID int32, name string, parentID *uuid.UUID) (database.Folder, error) {
 	// 1. Create DB record first
 	folder, err := s.queries.CreateFolder(ctx, database.CreateFolderParams{
@@ -151,30 +147,6 @@ func (s *FolderServiceImpl) CreateFolder(ctx context.Context, userID int32, name
 	return folder, nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
-// Download folder
-func (s *FolderServiceImpl) GetZippedFolderForDownload(ctx context.Context, folderID uuid.UUID, userID int32, w io.Writer) (database.Folder, error) {
-	// 1. Look up folder in DB
-	folderMeta, err := s.GetFolderByID(ctx, folderID, userID)
-	if err != nil {
-		return database.Folder{}, fmt.Errorf("fetching folder metadata: %w", err)
-	}
-
-	// 2. Build full folder path
-	folderPath, err := s.GetFolderFullPath(ctx, folderID, userID)
-	if err != nil {
-		return database.Folder{}, fmt.Errorf("building folder path: %w", err)
-	}
-
-	// 3. Stream zip into provided writer
-	if err := s.local.ZipFolder(userID, folderPath, w); err != nil {
-		return database.Folder{}, fmt.Errorf("zipping folder: %w", err)
-	}
-
-	return folderMeta, nil
-}
-
 func (s *FolderServiceImpl) GetZippedFoldersForDownload(ctx context.Context, folderIDs []uuid.UUID, userID int32, w io.Writer) ([]database.Folder, error) {
 	var folderPaths []string
 	var foldersMeta []database.Folder
@@ -201,8 +173,6 @@ func (s *FolderServiceImpl) GetZippedFoldersForDownload(ctx context.Context, fol
 
 	return foldersMeta, nil
 }
-
-// --------------------------------------------------------------------------------------------------------------------------
 
 func (s *FolderServiceImpl) UploadFolder(
 	ctx context.Context,
@@ -275,8 +245,6 @@ func (s *FolderServiceImpl) UploadFolder(
 	return result, nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
 func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.UUID, userID int32) error {
 	if len(folderIDs) == 0 {
 		return fmt.Errorf("no folders specified for deletion")
@@ -319,9 +287,6 @@ func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.
 	return nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
-// Update methods
 func (s *FolderServiceImpl) UpdateFolderMetadata(ctx context.Context, folderID uuid.UUID, userID int32, name string) error {
 	rows, err := s.queries.UpdateFolderMetadata(ctx, database.UpdateFolderMetadataParams{
 		ID:     folderID,
@@ -515,9 +480,6 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 	return nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
-
-// Internal helpers
 func (s *FolderServiceImpl) updateAllChildFilePaths(ctx context.Context, userID int32, folderID uuid.UUID, oldPath, newPath string) error {
 	files, err := s.files.ListFilesRecursive(ctx, folderID)
 	if err != nil {
@@ -537,5 +499,3 @@ func (s *FolderServiceImpl) updateAllChildFilePaths(ctx context.Context, userID 
 
 	return nil
 }
-
-// --------------------------------------------------------------------------------------------------------------------------
