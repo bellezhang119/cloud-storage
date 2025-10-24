@@ -56,7 +56,7 @@ type RenameFileRequest struct {
 	Overwrite bool   `json:"overwrite"`
 }
 
-func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
+func GetFileByIDHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -78,7 +78,7 @@ func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		file, err := service.GetFileByID(r.Context(), fileID, ctxUserID)
+		file, err := s.GetFileByID(r.Context(), fileID, ctxUserID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -88,7 +88,7 @@ func GetFileByIDHandler(service FileServiceInterface) http.HandlerFunc {
 	}
 }
 
-func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc {
+func GetFileByNameInFolderHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -110,7 +110,7 @@ func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc
 			return
 		}
 
-		file, err := service.GetFileByNameInFolder(r.Context(), folderID, ctxUserID, name)
+		file, err := s.GetFileByNameInFolder(r.Context(), folderID, ctxUserID, name)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -121,7 +121,7 @@ func GetFileByNameInFolderHandler(service FileServiceInterface) http.HandlerFunc
 }
 
 // ListFilesInFolderHandler make 2 routes for root folder and normal folder
-func ListFilesInFolderHandler(service FileServiceInterface) http.HandlerFunc {
+func ListFilesInFolderHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -147,7 +147,7 @@ func ListFilesInFolderHandler(service FileServiceInterface) http.HandlerFunc {
 			}
 		}
 
-		folders, err := service.ListFilesInFolder(r.Context(), folderID, ctxUserID)
+		folders, err := s.ListFilesInFolder(r.Context(), folderID, ctxUserID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -158,7 +158,7 @@ func ListFilesInFolderHandler(service FileServiceInterface) http.HandlerFunc {
 	}
 }
 
-func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
+func UploadFileHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract user ID from context
 		ctxUserID, _ := middleware.GetUserID(r.Context())
@@ -216,7 +216,7 @@ func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// Call service to handle the actual upload
-		fileMeta, err := service.UploadFile(
+		fileMeta, err := s.UploadFile(
 			r.Context(),
 			parentID,
 			ctxUserID,
@@ -235,7 +235,7 @@ func UploadFileHandler(service FileServiceInterface) http.HandlerFunc {
 	}
 }
 
-func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
+func DownloadFilesHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Extract user ID from context
 		ctxUserID, _ := middleware.GetUserID(r.Context())
@@ -258,7 +258,7 @@ func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// 3. Call service
-		downloads, err := service.DownloadFiles(r.Context(), req.FileIDs, ctxUserID)
+		downloads, err := s.DownloadFiles(r.Context(), req.FileIDs, ctxUserID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -306,7 +306,7 @@ func DownloadFilesHandler(service FileServiceInterface) http.HandlerFunc {
 	}
 }
 
-func DeleteFilesHandler(service FileServiceInterface) http.HandlerFunc {
+func DeleteFilesHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -326,7 +326,7 @@ func DeleteFilesHandler(service FileServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		err := service.DeleteFiles(r.Context(), req.FileIDs, ctxUserID)
+		err := s.DeleteFiles(r.Context(), req.FileIDs, ctxUserID)
 
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -337,7 +337,7 @@ func DeleteFilesHandler(service FileServiceInterface) http.HandlerFunc {
 	}
 }
 
-func MoveFilesHandler(service FileServiceInterface) http.HandlerFunc {
+func MoveFilesHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract user ID from context
 		ctxUserID, _ := middleware.GetUserID(r.Context())
@@ -375,7 +375,7 @@ func MoveFilesHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// Call service
-		if err := service.MoveFiles(r.Context(), req.FileIDs, ctxUserID, folderID, req.Overwrite); err != nil {
+		if err := s.MoveFiles(r.Context(), req.FileIDs, ctxUserID, folderID, req.Overwrite); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -384,7 +384,7 @@ func MoveFilesHandler(service FileServiceInterface) http.HandlerFunc {
 	}
 }
 
-func RenameFileHandler(service FileServiceInterface) http.HandlerFunc {
+func RenameFileHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Extract user ID from context and path
 		ctxUserID, _ := middleware.GetUserID(r.Context())
@@ -435,7 +435,7 @@ func RenameFileHandler(service FileServiceInterface) http.HandlerFunc {
 		}
 
 		// 6. Call service to rename
-		if err := service.RenameFile(r.Context(), fileID, ctxUserID, name, req.Overwrite); err != nil {
+		if err := s.RenameFile(r.Context(), fileID, ctxUserID, name, req.Overwrite); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to rename file: %v", err))
 			return
 		}

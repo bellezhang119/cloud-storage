@@ -53,6 +53,18 @@ type FolderUploadItemRequest struct {
 	FileHeader *multipart.FileHeader `json:"-"`         // header info for size, name, etc.
 }
 
+type DeleteFoldersRequest struct {
+	FolderIDs []uuid.UUID `json:"file_ids"`
+}
+
+type MoveFoldersRequest struct {
+	FolderIDs []uuid.UUID `json:"folder_ids"`
+}
+
+type RenameFolderRequest struct {
+	Name string `json:"name"`
+}
+
 func validateFolderName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return errors.New("folder name is required")
@@ -66,7 +78,7 @@ func validateFolderName(name string) error {
 	return nil
 }
 
-func GetFolderByIDHandler(service FolderServiceInterface) http.HandlerFunc {
+func GetFolderByIDHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -88,7 +100,7 @@ func GetFolderByIDHandler(service FolderServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		folder, err := service.GetFolderByID(r.Context(), folderID, ctxUserID)
+		folder, err := s.GetFolderByID(r.Context(), folderID, ctxUserID)
 
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -100,7 +112,7 @@ func GetFolderByIDHandler(service FolderServiceInterface) http.HandlerFunc {
 }
 
 // ListFoldersByParentHandler make 2 routes and root folder and normal folder
-func ListFoldersByParentHandler(service FolderServiceInterface) http.HandlerFunc {
+func ListFoldersByParentHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -124,7 +136,7 @@ func ListFoldersByParentHandler(service FolderServiceInterface) http.HandlerFunc
 			}
 		}
 
-		folders, err := service.ListFoldersByParent(r.Context(), ctxUserID, parentID)
+		folders, err := s.ListFoldersByParent(r.Context(), ctxUserID, parentID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -134,7 +146,7 @@ func ListFoldersByParentHandler(service FolderServiceInterface) http.HandlerFunc
 	}
 }
 
-func GetFolderFullPath(service FolderServiceInterface) http.HandlerFunc {
+func GetFolderFullPath(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -155,7 +167,7 @@ func GetFolderFullPath(service FolderServiceInterface) http.HandlerFunc {
 			util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID format")
 		}
 
-		path, err := service.GetFolderFullPath(r.Context(), folderID, ctxUserID)
+		path, err := s.GetFolderFullPath(r.Context(), folderID, ctxUserID)
 
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -166,7 +178,7 @@ func GetFolderFullPath(service FolderServiceInterface) http.HandlerFunc {
 	}
 }
 
-func GetFolderByNameInParentHandler(service FolderServiceInterface) http.HandlerFunc {
+func GetFolderByNameInParentHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -197,7 +209,7 @@ func GetFolderByNameInParentHandler(service FolderServiceInterface) http.Handler
 			}
 		}
 
-		folder, err := service.GetFolderByNameInParent(r.Context(), ctxUserID, name, parentID)
+		folder, err := s.GetFolderByNameInParent(r.Context(), ctxUserID, name, parentID)
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -207,7 +219,7 @@ func GetFolderByNameInParentHandler(service FolderServiceInterface) http.Handler
 	}
 }
 
-func CreateFolderHandler(service FolderServiceInterface) http.HandlerFunc {
+func CreateFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -242,7 +254,7 @@ func CreateFolderHandler(service FolderServiceInterface) http.HandlerFunc {
 			}
 		}
 
-		folder, err := service.CreateFolder(r.Context(), ctxUserID, req.Name, parentID)
+		folder, err := s.CreateFolder(r.Context(), ctxUserID, req.Name, parentID)
 
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -253,7 +265,7 @@ func CreateFolderHandler(service FolderServiceInterface) http.HandlerFunc {
 	}
 }
 
-func DownloadFoldersHandler(service FolderServiceInterface) http.HandlerFunc {
+func DownloadFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract user ID from context
 		ctxUserID, _ := middleware.GetUserID(r.Context())
@@ -281,7 +293,7 @@ func DownloadFoldersHandler(service FolderServiceInterface) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 
 		// Stream zip to the response writer
-		foldersMeta, err := service.GetZippedFoldersForDownload(r.Context(), req.FolderIDs, ctxUserID, w)
+		foldersMeta, err := s.GetZippedFoldersForDownload(r.Context(), req.FolderIDs, ctxUserID, w)
 		if err != nil {
 			// If streaming started, cannot change HTTP status code, but you can log the error
 			fmt.Printf("Error zipping folders: %v\n", err)
@@ -292,7 +304,7 @@ func DownloadFoldersHandler(service FolderServiceInterface) http.HandlerFunc {
 	}
 }
 
-func UploadFolderHandler(service FolderServiceInterface) http.HandlerFunc {
+func UploadFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -345,12 +357,133 @@ func UploadFolderHandler(service FolderServiceInterface) http.HandlerFunc {
 		}
 
 		// Call service
-		result, err := service.UploadFolder(r.Context(), ctxUserID, parentID, items, overwrite, "")
+		result, err := s.UploadFolder(r.Context(), ctxUserID, parentID, items, overwrite, "")
 		if err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
 		util.RespondWithJSON(w, http.StatusCreated, result)
+	}
+}
+
+func DeleteFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if strconv.Itoa(int(ctxUserID)) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+			return
+		}
+
+		var req DeleteFoldersRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		if len(req.FolderIDs) == 0 {
+			util.RespondWithError(w, http.StatusBadRequest, "No folder IDs provided")
+			return
+		}
+
+		err := s.DeleteFolders(r.Context(), req.FolderIDs, ctxUserID)
+		if err != nil {
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		util.RespondWithJSON(w, http.StatusNoContent, nil)
+	}
+}
+
+func MoveFolderHandler(s FolderServiceInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if strconv.Itoa(int(ctxUserID)) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+			return
+		}
+
+		parentIDStr := r.PathValue("parent_id")
+		var parentID *uuid.UUID
+		if parentIDStr != "" {
+			id, err := uuid.Parse(parentIDStr)
+			if err != nil {
+				util.RespondWithError(w, http.StatusBadRequest, "Invalid parent ID format")
+				return
+			}
+			if id != uuid.Nil {
+				parentID = &id
+			}
+		}
+
+		var req MoveFoldersRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		if len(req.FolderIDs) == 0 {
+			util.RespondWithError(w, http.StatusBadRequest, "No folder IDs provided")
+			return
+		}
+
+		overwrite := r.URL.Query().Get("overwrite") == "true"
+
+		err := s.MoveFolders(r.Context(), req.FolderIDs, ctxUserID, parentID, overwrite)
+
+		if err != nil {
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		util.RespondWithJSON(w, http.StatusNoContent, nil)
+	}
+}
+
+func RenameFolderHandler(s FolderServiceInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if strconv.Itoa(int(ctxUserID)) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+			return
+		}
+
+		folderIDStr := r.PathValue("folder_id")
+		if folderIDStr == "" {
+			util.RespondWithError(w, http.StatusBadRequest, "Missing folder_id parameter")
+			return
+		}
+
+		folderID, err := uuid.Parse(folderIDStr)
+		if err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID format")
+			return
+		}
+
+		var req RenameFolderRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		if validateFolderName(req.Name) != nil {
+			util.RespondWithError(w, http.StatusBadRequest, "Invalid folder name")
+		}
+
+		overwrite := r.URL.Query().Get("overwrite") == "true"
+
+		err = s.RenameFolder(r.Context(), folderID, req.Name, ctxUserID, overwrite)
+
+		if err != nil {
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		util.RespondWithJSON(w, http.StatusNoContent, nil)
 	}
 }

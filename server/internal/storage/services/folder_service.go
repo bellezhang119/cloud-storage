@@ -480,6 +480,7 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 	return nil
 }
 
+// updateAllChildFilePaths internal helper
 func (s *FolderServiceImpl) updateAllChildFilePaths(ctx context.Context, userID int32, folderID uuid.UUID, oldPath, newPath string) error {
 	files, err := s.files.ListFilesRecursive(ctx, folderID)
 	if err != nil {
