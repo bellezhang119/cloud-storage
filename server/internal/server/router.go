@@ -10,11 +10,10 @@ import (
 	"github.com/bellezhang119/cloud-storage/internal/util"
 )
 
-func NewRouter(authService *auth.Service, userService *user.Service, storageService *storage.Service) *http.ServeMux {
+func NewRouter(authService *auth.Service, userService *user.Service, storageService *storage.Service) http.Handler {
 	authMiddleware := middleware.AuthMiddleware(util.VerifyAccessToken)
 	mux := http.NewServeMux()
-
-	//protectedHandler := auth.AuthMiddleware(util.VerifyAccessToken)
+	loggedMux := middleware.LoggingMiddleware(mux)
 
 	// Auth routes
 	mux.HandleFunc("POST /auth/register", auth.RegisterHandler(authService, util.SendEmail))
@@ -57,5 +56,5 @@ func NewRouter(authService *auth.Service, userService *user.Service, storageServ
 	})
 	mux.HandleFunc("GET /err", HandleErr)
 
-	return mux
+	return loggedMux
 }

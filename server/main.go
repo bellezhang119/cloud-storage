@@ -10,9 +10,13 @@ import (
 	"github.com/bellezhang119/cloud-storage/internal/config"
 	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/server"
+	"github.com/bellezhang119/cloud-storage/internal/storage"
+	"github.com/bellezhang119/cloud-storage/internal/storage/local"
 	"github.com/bellezhang119/cloud-storage/internal/user"
 	"github.com/joho/godotenv"
 )
+
+// TODO: add logging to handlers and services
 
 func main() {
 	db, err := config.ConnectDB()
@@ -20,14 +24,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	queries := database.New(db)
-	userService := user.NewService(queries)
-	authService := auth.NewService(queries, userService)
-
 	err = godotenv.Load(".env")
 	if err != nil {
 		return
 	}
+
+	basePath := os.Getenv("BASE_PATH")
+
+	queries := database.New(db)
+	localStorage := local.NewLocalStorage(basePath)
+	userService := user.NewService(queries)
+	authService := auth.NewService(queries, userService)
+	storageService := storage.NewService(queries, localStorage)
 
 	portString := os.Getenv("PORT")
 
@@ -37,7 +45,7 @@ func main() {
 
 	fmt.Println("Port:", portString)
 
-	router := server.NewRouter(authService)
+	router := server.NewRouter(authService, userService, storageService)
 
 	err = http.ListenAndServe(portString, router)
 

@@ -18,7 +18,6 @@ type Queries interface {
 	GetFileShare(ctx context.Context, arg database.GetFileShareParams) (database.FileShare, error)
 	ListFileShares(ctx context.Context, fileID uuid.NullUUID) ([]database.FileShare, error)
 	ListFilesSharedWithUser(ctx context.Context, sharedUserID sql.NullInt32) ([]database.File, error)
-	//---------------------------------------------------------------------------------------------------
 	CheckUserFolderAccess(ctx context.Context, arg database.CheckUserFolderAccessParams) (bool, error)
 	CreateFolderShare(ctx context.Context, arg database.CreateFolderShareParams) (database.FolderShare, error)
 	DeleteFolderShare(ctx context.Context, arg database.DeleteFolderShareParams) (int64, error)
@@ -37,10 +36,8 @@ func NewService(q Queries) *Service {
 	return &Service{queries: q}
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
 // Share files
 
-// Check user file access
 func (s *Service) CheckUserFileAccess(ctx context.Context, fileID uuid.UUID) (bool, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -56,7 +53,6 @@ func (s *Service) CheckUserFileAccess(ctx context.Context, fileID uuid.UUID) (bo
 	return access, nil
 }
 
-// Create file share
 func (s *Service) CreateFileShare(ctx context.Context, fileID uuid.UUID) (database.FileShare, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -72,7 +68,6 @@ func (s *Service) CreateFileShare(ctx context.Context, fileID uuid.UUID) (databa
 	return fileShare, nil
 }
 
-// Delete file share
 func (s *Service) DeleteFileShare(ctx context.Context, fileID uuid.UUID) error {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -92,7 +87,6 @@ func (s *Service) DeleteFileShare(ctx context.Context, fileID uuid.UUID) error {
 	return nil
 }
 
-// Get file share
 func (s *Service) GetFileShare(ctx context.Context, fileID uuid.UUID) (database.FileShare, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -108,7 +102,6 @@ func (s *Service) GetFileShare(ctx context.Context, fileID uuid.UUID) (database.
 	return fileShare, nil
 }
 
-// List file shares
 func (s *Service) ListFileShares(ctx context.Context, fileID uuid.UUID) ([]database.FileShare, error) {
 	fileShares, err := s.queries.ListFileShares(ctx, util.ToNullUUID(&fileID))
 
@@ -119,7 +112,6 @@ func (s *Service) ListFileShares(ctx context.Context, fileID uuid.UUID) ([]datab
 	return fileShares, nil
 }
 
-// List files shared with user
 func (s *Service) ListFilesSharedWithUser(ctx context.Context) ([]database.File, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -132,10 +124,8 @@ func (s *Service) ListFilesSharedWithUser(ctx context.Context) ([]database.File,
 	return files, nil
 }
 
-// --------------------------------------------------------------------------------------------------------------------------
 // Share folders
 
-// Check user folder access
 func (s *Service) CheckUserFolderAccess(ctx context.Context, folderID uuid.UUID) (bool, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -151,7 +141,6 @@ func (s *Service) CheckUserFolderAccess(ctx context.Context, folderID uuid.UUID)
 	return access, nil
 }
 
-// Create folder share
 func (s *Service) CreateFolderShare(ctx context.Context, folderID uuid.UUID) (database.FolderShare, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -167,7 +156,6 @@ func (s *Service) CreateFolderShare(ctx context.Context, folderID uuid.UUID) (da
 	return folderShare, nil
 }
 
-// Delete folder share
 func (s *Service) DeleteFolderShare(ctx context.Context, folderID uuid.UUID) error {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -187,7 +175,6 @@ func (s *Service) DeleteFolderShare(ctx context.Context, folderID uuid.UUID) err
 	return nil
 }
 
-// Get folder share
 func (s *Service) GetFolderShare(ctx context.Context, folderID uuid.UUID) (database.FolderShare, error) {
 	userID, _ := middleware.GetUserID(ctx)
 
@@ -203,7 +190,6 @@ func (s *Service) GetFolderShare(ctx context.Context, folderID uuid.UUID) (datab
 	return folderShare, nil
 }
 
-// Get files in shared folders
 func (s *Service) GetSharedFolderContent(ctx context.Context, folderID uuid.UUID) ([]database.Folder, []database.File, error) {
 	access, err := s.CheckUserFolderAccess(ctx, folderID)
 
@@ -230,7 +216,6 @@ func (s *Service) GetSharedFolderContent(ctx context.Context, folderID uuid.UUID
 	return folders, files, nil
 }
 
-// List folder shares
 func (s *Service) ListFolderShares(ctx context.Context, folderID uuid.UUID) ([]database.FolderShare, error) {
 	folderShares, err := s.queries.ListFolderShares(ctx, util.ToNullUUID(&folderID))
 
@@ -241,7 +226,6 @@ func (s *Service) ListFolderShares(ctx context.Context, folderID uuid.UUID) ([]d
 	return folderShares, nil
 }
 
-// List folders shared with user
 func (s *Service) ListFoldersSharedWithUser(ctx context.Context) ([]database.Folder, error) {
 	userID, _ := middleware.GetUserID(ctx)
 

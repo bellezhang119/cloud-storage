@@ -8,22 +8,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type contextKey string
+type authContextKey string
 
-const userIDKey contextKey = "user_id"
-const userEmailKey contextKey = "user_email"
+const userIDKey authContextKey = "user_id"
+const userEmailKey authContextKey = "user_email"
 
 type TokenVerifier func(tokenStr string) (jwt.MapClaims, error)
-
-func GetUserID(ctx context.Context) (int32, bool) {
-	id, ok := ctx.Value(userIDKey).(int32)
-	return id, ok
-}
-
-func GetUserEmail(ctx context.Context) (string, bool) {
-	email, ok := ctx.Value(userEmailKey).(string)
-	return email, ok
-}
 
 func AuthMiddleware(verify TokenVerifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -60,4 +50,14 @@ func AuthMiddleware(verify TokenVerifier) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func GetUserID(ctx context.Context) (int32, bool) {
+	id, ok := ctx.Value(userIDKey).(int32)
+	return id, ok
+}
+
+func GetUserEmail(ctx context.Context) (string, bool) {
+	email, ok := ctx.Value(userEmailKey).(string)
+	return email, ok
 }
