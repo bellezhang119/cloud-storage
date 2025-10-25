@@ -65,6 +65,7 @@ type RenameFolderRequest struct {
 	Name string `json:"name"`
 }
 
+// validateFolderName internal helper
 func validateFolderName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return errors.New("folder name is required")
@@ -146,7 +147,7 @@ func ListFoldersByParentHandler(s FolderServiceInterface) http.HandlerFunc {
 	}
 }
 
-func GetFolderFullPath(s FolderServiceInterface) http.HandlerFunc {
+func GetFolderFullPathHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")
@@ -397,7 +398,7 @@ func DeleteFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 	}
 }
 
-func MoveFolderHandler(s FolderServiceInterface) http.HandlerFunc {
+func MoveFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctxUserID, _ := middleware.GetUserID(r.Context())
 		pathUserID := r.PathValue("user_id")

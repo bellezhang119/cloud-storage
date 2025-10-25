@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
+	"github.com/bellezhang119/cloud-storage/internal/middleware"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 )
 
@@ -28,49 +29,51 @@ type UpdateStorageRequest struct {
 
 func GetUserByIDHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.PathValue("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			http.Error(w, "invalid user id", http.StatusBadRequest)
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if strconv.Itoa(int(ctxUserID)) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
 		}
 
-		user, err := service.GetUserByID(r.Context(), int32(id))
+		user, err := service.GetUserByID(r.Context(), ctxUserID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(user)
+		util.RespondWithJSON(w, http.StatusOK, user)
 	}
 }
 
 func GetUserByEmailHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		email := r.URL.Query().Get("email")
-		if email == "" {
-			http.Error(w, "email query parameter is required", http.StatusBadRequest)
+		ctxUserEmail, _ := middleware.GetUserEmail(r.Context())
+		pathUserEmail := r.PathValue("user_email")
+
+		if ctxUserEmail != pathUserEmail {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user email")
 			return
 		}
 
-		user, err := service.GetUserByEmail(r.Context(), email)
+		user, err := service.GetUserByEmail(r.Context(), ctxUserEmail)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(user)
+		util.RespondWithJSON(w, http.StatusOK, user)
 	}
 }
 
 func UpdatePasswordHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.PathValue("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if strconv.Itoa(int(ctxUserID)) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
 		}
 
@@ -85,7 +88,7 @@ func UpdatePasswordHandler(service ServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		if err := service.UpdateUserPassword(r.Context(), int32(id), req.NewPassword); err != nil {
+		if err := service.UpdateUserPassword(r.Context(), ctxUserID, req.NewPassword); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -96,41 +99,17 @@ func UpdatePasswordHandler(service ServiceInterface) http.HandlerFunc {
 	}
 }
 
-func UpdateStorageHandler(service ServiceInterface) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.PathValue("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
-			return
-		}
-
-		var req UpdateStorageRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
-			return
-		}
-		if err := service.UpdateUsedStorage(r.Context(), int32(id), req.NewUsedBytes); err != nil {
-			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-
-		util.RespondWithJSON(w, http.StatusOK, map[string]string{
-			"message": "Used storage updated successfully",
-		})
-	}
-}
-
 func DeleteUserHandler(service ServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.PathValue("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		ctxUserID, _ := middleware.GetUserID(r.Context())
+		pathUserID := r.PathValue("user_id")
+
+		if strconv.Itoa(int(ctxUserID)) != pathUserID {
+			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
 			return
 		}
 
-		if err := service.DeleteUser(r.Context(), int32(id)); err != nil {
+		if err := service.DeleteUser(r.Context(), ctxUserID); err != nil {
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
