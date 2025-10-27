@@ -16,7 +16,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// TODO: add logging to handlers and services
+// TODO: add logging to handlers and services, track user storage usage
 
 func main() {
 	db, err := config.ConnectDB()

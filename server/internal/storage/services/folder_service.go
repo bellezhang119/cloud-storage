@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"path/filepath"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
+	"github.com/bellezhang119/cloud-storage/internal/middleware"
 	"github.com/bellezhang119/cloud-storage/internal/storage/local"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 	"github.com/google/uuid"
@@ -119,6 +119,9 @@ func (s *FolderServiceImpl) GetFolderByNameInParent(ctx context.Context, userID 
 }
 
 func (s *FolderServiceImpl) CreateFolder(ctx context.Context, userID int32, name string, parentID *uuid.UUID) (database.Folder, error) {
+	logger := middleware.GetLogger(ctx)
+	logger.Info("starting folder creation")
+
 	// 1. Create DB record first
 	folder, err := s.queries.CreateFolder(ctx, database.CreateFolderParams{
 		UserID:   util.ToNullInt32(&userID),
@@ -126,6 +129,7 @@ func (s *FolderServiceImpl) CreateFolder(ctx context.Context, userID int32, name
 		ParentID: util.ToNullUUID(parentID),
 	})
 	if err != nil {
+		logger.Error("failed to create folder record", "error", err)
 		return database.Folder{}, fmt.Errorf("creating folder record: %w", err)
 	}
 
@@ -133,34 +137,44 @@ func (s *FolderServiceImpl) CreateFolder(ctx context.Context, userID int32, name
 	path, err := s.GetFolderFullPath(ctx, folder.ID, userID)
 	if err != nil {
 		// rollback DB record
-		_ = s.DeleteFolders(ctx, []uuid.UUID{folder.ID}, userID)
-		log.Printf("[WARN] rollback folder create failed (folder=%s): %v", folder.ID, err)
+		if rbErr := s.DeleteFolders(ctx, []uuid.UUID{folder.ID}, userID); rbErr != nil {
+			logger.Warn("rollback failed after path build error", "error", rbErr)
+		}
+		logger.Error("failed to build folder path", "error", err)
 		return database.Folder{}, fmt.Errorf("building folder path: %w", err)
 	}
 
 	// 3. Create folder on disk
-	if err := s.local.CreateDirectory(userID, path); err != nil {
+	if err := s.local.CreateDirectory(ctx, userID, path); err != nil {
 		// rollback DB record
-		_ = s.DeleteFolders(ctx, []uuid.UUID{folder.ID}, userID)
-		log.Printf("[WARN] rollback folder create failed (folder=%s): %v", folder.ID, err)
+		if rbErr := s.DeleteFolders(ctx, []uuid.UUID{folder.ID}, userID); rbErr != nil {
+			logger.Warn("rollback failed after disk create error", "error", rbErr)
+		}
+		logger.Error("failed to create folder on disk", "error", err)
 		return database.Folder{}, fmt.Errorf("creating folder on disk: %w", err)
 	}
 
+	logger.Info("folder created successfully", "folder_id", folder.ID, "path", path)
 	return folder, nil
 }
 
 func (s *FolderServiceImpl) GetZippedFoldersForDownload(ctx context.Context, folderIDs []uuid.UUID, userID int32, w io.Writer) ([]database.Folder, error) {
+	logger := middleware.GetLogger(ctx)
+	logger.Info("starting to zip folders for download")
+
 	var folderPaths []string
 	var foldersMeta []database.Folder
 
 	for _, folderID := range folderIDs {
 		meta, err := s.GetFolderByID(ctx, folderID, userID)
 		if err != nil {
+			logger.Error("failed to fetch folder metadata", "folder_id", folderID, "error", err)
 			return nil, err
 		}
 
 		path, err := s.GetFolderFullPath(ctx, folderID, userID)
 		if err != nil {
+			logger.Error("failed to get folder full path", "folder_id", folderID, "error", err)
 			return nil, err
 		}
 
@@ -169,10 +183,12 @@ func (s *FolderServiceImpl) GetZippedFoldersForDownload(ctx context.Context, fol
 	}
 
 	// Stream all folders into zip
-	if err := s.local.ZipMultipleFolders(userID, folderPaths, w); err != nil {
+	if err := s.local.ZipMultipleFolders(ctx, userID, folderPaths, w); err != nil {
+		logger.Error("failed to zip folders", "error", err)
 		return nil, err
 	}
 
+	logger.Info("folders zipped successfully", "folder_count", len(foldersMeta))
 	return foldersMeta, nil
 }
 
@@ -184,6 +200,9 @@ func (s *FolderServiceImpl) UploadFolder(
 	overwrite bool,
 	basePath string,
 ) (UploadResult, error) {
+	logger := middleware.GetLogger(ctx)
+	logger.Info("starting folder upload", "item_count", len(items))
+
 	result := UploadResult{}
 
 	for _, item := range items {
@@ -193,6 +212,7 @@ func (s *FolderServiceImpl) UploadFolder(
 			// --- Always merge folders ---
 			folder, err := s.GetFolderByNameInParent(ctx, userID, item.Name, parentID)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				logger.Error("failed to check existing folder", "folder_name", item.Name, "error", err)
 				return result, fmt.Errorf("checking existing folder: %w", err)
 			}
 
@@ -202,16 +222,19 @@ func (s *FolderServiceImpl) UploadFolder(
 			} else {
 				newFolder, err := s.CreateFolder(ctx, userID, item.Name, parentID)
 				if err != nil {
+					logger.Error("failed to create folder", "folder_name", item.Name, "error", err)
 					return result, fmt.Errorf("creating folder: %w", err)
 				}
 				folderID = newFolder.ID
 				result.Created = append(result.Created, currentPath)
+				logger.Info("folder created", "path", currentPath, "folder_id", folderID)
 			}
 
 			// Recursively upload contents
 			if len(item.Children) > 0 {
 				subResult, err := s.UploadFolder(ctx, userID, &folderID, item.Children, overwrite, currentPath)
 				if err != nil {
+					logger.Error("failed to upload subfolder", "subfolder_path", currentPath, "error", err)
 					return result, fmt.Errorf("uploading subfolder %s: %w", currentPath, err)
 				}
 				result.Created = append(result.Created, subResult.Created...)
@@ -223,32 +246,42 @@ func (s *FolderServiceImpl) UploadFolder(
 		// --- Handle files ---
 		file, err := s.files.GetFileByNameInFolder(ctx, parentID, userID, item.Name)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			logger.Error("failed to check existing file", "file_name", item.Name, "error", err)
 			return result, fmt.Errorf("checking existing file: %w", err)
 		}
 
 		if file.ID != uuid.Nil && overwrite {
 			if err := s.files.DeleteFiles(ctx, []uuid.UUID{file.ID}, userID); err != nil {
+				logger.Error("failed to delete existing file for overwrite", "file_name", item.Name, "file_id", file.ID, "error", err)
 				return result, fmt.Errorf("deleting existing file before overwrite: %w", err)
 			}
 			result.Overwritten = append(result.Overwritten, currentPath)
+			logger.Info("file overwritten", "path", currentPath, "file_id", file.ID)
 		} else if file.ID != uuid.Nil && !overwrite {
-			// Skip existing file
+			logger.Info("file skipped (exists and overwrite=false)", "path", currentPath, "file_id", file.ID)
 			continue
 		}
 
 		// Upload file
 		_, err = s.files.UploadFile(ctx, parentID, userID, item.Name, item.SizeBytes, item.MimeType, item.Content, overwrite)
 		if err != nil {
+			logger.Error("failed to upload file", "file_name", item.Name, "error", err)
 			return result, fmt.Errorf("uploading file: %w", err)
 		}
 		result.Created = append(result.Created, currentPath)
+		logger.Info("file uploaded", "path", currentPath)
 	}
 
+	logger.Info("folder upload completed", "created_count", len(result.Created), "overwritten_count", len(result.Overwritten))
 	return result, nil
 }
 
 func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.UUID, userID int32) error {
+	logger := middleware.GetLogger(ctx)
+	logger.Info("starting folder deletion", "folder_count", len(folderIDs))
+
 	if len(folderIDs) == 0 {
+		logger.Warn("no folders specified for deletion")
 		return fmt.Errorf("no folders specified for deletion")
 	}
 
@@ -261,6 +294,7 @@ func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.
 	for _, id := range folderIDs {
 		path, err := s.GetFolderFullPath(ctx, id, userID)
 		if err != nil {
+			logger.Error("failed to fetch folder path", "folder_id", id, "error", err)
 			return fmt.Errorf("fetching path for folder %s: %w", id, err)
 		}
 		paths = append(paths, folderPath{ID: id, Path: path})
@@ -272,20 +306,25 @@ func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.
 		UserID:  util.ToNullInt32(&userID),
 	})
 	if err != nil {
+		logger.Error("failed to delete folders from DB", "error", err)
 		return fmt.Errorf("deleting folders from DB: %w", err)
 	}
 	if rows == 0 {
+		logger.Warn("no folders deleted — check ownership or IDs")
 		return fmt.Errorf("no folders deleted — check ownership or IDs")
 	}
+	logger.Info("folders deleted from DB", "deleted_count", rows)
 
 	// 3. Delete directories from storage (best effort)
 	for _, p := range paths {
-		if err := s.local.DeleteDirectory(userID, p.Path); err != nil {
-			// Log, don’t fail entire operation since DB is already committed
-			fmt.Printf("warning: deleted from DB but failed to remove folder %s: %v\n", p.Path, err)
+		if err := s.local.DeleteDirectory(ctx, userID, p.Path); err != nil {
+			logger.Warn("failed to remove folder from storage", "folder_path", p.Path, "error", err)
+		} else {
+			logger.Info("folder removed from storage", "folder_path", p.Path)
 		}
 	}
 
+	logger.Info("folder deletion completed")
 	return nil
 }
 
@@ -341,7 +380,12 @@ func (s *FolderServiceImpl) UpdateFoldersParent(ctx context.Context, folders []d
 }
 
 func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UUID, userID int32, newParentID *uuid.UUID, overwriteFiles bool) error {
+	logger := middleware.GetLogger(ctx)
+
+	logger.Info("starting folder move", "folder_count", len(folderIDs))
+
 	if len(folderIDs) == 0 {
+		logger.Warn("no folder IDs provided")
 		return fmt.Errorf("no folder IDs provided")
 	}
 
@@ -349,6 +393,7 @@ func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UU
 	for i, id := range folderIDs {
 		f, err := s.GetFolderByID(ctx, id, userID)
 		if err != nil {
+			logger.Error("failed to fetch folder", "folder_id", id, "error", err)
 			return fmt.Errorf("fetching folder %s: %w", id, err)
 		}
 		folders[i] = f
@@ -356,12 +401,14 @@ func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UU
 
 	for _, f := range folders {
 		if newParentID != nil && *newParentID == f.ID {
+			logger.Warn("cannot move folder under itself", "folder_id", f.ID)
 			return fmt.Errorf("cannot move folder %s under itself", f.ID)
 		}
 	}
 
 	existingFoldersMap := map[string]database.Folder{}
 	if existingFolders, err := s.ListFoldersByParent(ctx, userID, newParentID); err != nil {
+		logger.Error("failed to list folders in target parent", "error", err)
 		return fmt.Errorf("fetching folders in target parent: %w", err)
 	} else {
 		for _, f := range existingFolders {
@@ -373,6 +420,7 @@ func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UU
 	if newParentID != nil {
 		pp, err := s.GetFolderFullPath(ctx, *newParentID, userID)
 		if err != nil {
+			logger.Error("failed to get new parent path", "new_parent_id", *newParentID, "error", err)
 			return fmt.Errorf("building new parent path: %w", err)
 		}
 		parentPath = pp
@@ -381,6 +429,7 @@ func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UU
 	for _, f := range folders {
 		oldPath, err := s.GetFolderFullPath(ctx, f.ID, userID)
 		if err != nil {
+			logger.Error("failed to get old folder path", "folder_id", f.ID, "error", err)
 			return fmt.Errorf("building old folder path: %w", err)
 		}
 
@@ -388,11 +437,14 @@ func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UU
 		if existing, ok := existingFoldersMap[f.Name]; ok {
 			// Merge into existing folder
 			targetFolder = existing
+			logger.Info("merging folder into existing", "folder_name", f.Name, "target_id", existing.ID)
 		} else {
 			// Update parent for folders not merging
 			if err := s.UpdateFoldersParent(ctx, []database.Folder{f}, userID, newParentID); err != nil {
+				logger.Error("failed to update folder parent in DB", "folder_id", f.ID, "error", err)
 				return fmt.Errorf("updating folder parent in DB: %w", err)
 			}
+			logger.Info("updated folder parent in DB", "folder_id", f.ID, "new_parent_id", newParentID)
 		}
 
 		newPath := targetFolder.Name
@@ -400,32 +452,43 @@ func (s *FolderServiceImpl) MoveFolders(ctx context.Context, folderIDs []uuid.UU
 			newPath = filepath.Join(parentPath, targetFolder.Name)
 		}
 
-		if err := s.local.MoveDirectory(userID, oldPath, newPath, overwriteFiles); err != nil {
+		if err := s.local.MoveDirectory(ctx, userID, oldPath, newPath, overwriteFiles); err != nil {
 			_ = s.UpdateFoldersParent(ctx, []database.Folder{f}, userID, &f.ParentID.UUID)
+			logger.Error("failed to move folder on disk", "folder_id", f.ID, "old_path", oldPath, "new_path", newPath, "error", err)
 			return fmt.Errorf("moving folder %s on disk: %w", f.Name, err)
 		}
+		logger.Info("folder moved on disk", "folder_id", f.ID, "old_path", oldPath, "new_path", newPath)
 
 		if err := s.updateAllChildFilePaths(ctx, userID, f.ID, oldPath, newPath); err != nil {
+			logger.Error("failed to update child file paths", "folder_id", f.ID, "error", err)
 			return fmt.Errorf("updating child file paths for folder %s: %w", f.Name, err)
 		}
+		logger.Info("child file paths updated", "folder_id", f.ID)
 	}
 
+	logger.Info("folder move completed")
 	return nil
 }
 
 func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID, newName string, userID int32, overwriteFiles bool) error {
+	logger := middleware.GetLogger(ctx)
+	logger.Info("starting folder rename")
+
 	if newName == "" {
+		logger.Warn("new folder name is empty")
 		return fmt.Errorf("new folder name is required")
 	}
 
 	// 1. Fetch folder and parent info
 	folder, err := s.GetFolderByID(ctx, folderID, userID)
 	if err != nil {
+		logger.Error("failed to fetch folder", "error", err)
 		return fmt.Errorf("fetching folder: %w", err)
 	}
 
 	oldPath, err := s.GetFolderFullPath(ctx, folderID, userID)
 	if err != nil {
+		logger.Error("failed to get old folder path", "error", err)
 		return fmt.Errorf("building old folder path: %w", err)
 	}
 
@@ -434,51 +497,57 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 		parentID = &folder.ParentID.UUID
 	}
 
-	// 2. Check if a folder with newName exists in the same parent
+	// 2. Check for conflicts in parent
 	existing, err := s.GetFolderByNameInParent(ctx, userID, newName, parentID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		logger.Error("failed to check existing folder", "error", err)
 		return fmt.Errorf("checking existing folder: %w", err)
 	}
 
 	targetFolder := folder
 	if existing.ID != uuid.Nil {
-		// Merge into existing folder
 		targetFolder = existing
+		logger.Info("merging folder into existing folder", "target_folder_id", existing.ID)
 	} else {
-		// No conflict, update metadata
 		if err := s.UpdateFolderMetadata(ctx, folderID, userID, newName); err != nil {
+			logger.Error("failed to update folder metadata", "error", err)
 			return fmt.Errorf("updating folder name in DB: %w", err)
 		}
+		logger.Info("folder metadata updated")
 	}
 
-	// 3. Build new folder path
+	// 3. Build new path
 	newPath := targetFolder.Name
 	if parentID != nil {
 		parentPath, err := s.GetFolderFullPath(ctx, *parentID, userID)
 		if err != nil {
-			// rollback metadata if needed
 			if targetFolder.ID == folder.ID {
 				_ = s.UpdateFolderMetadata(ctx, folderID, userID, folder.Name)
 			}
+			logger.Error("failed to get parent folder path", "error", err)
 			return fmt.Errorf("building parent folder path: %w", err)
 		}
 		newPath = filepath.Join(parentPath, targetFolder.Name)
 	}
 
-	// 4. Move folder on disk (merge if folder exists)
-	if err := s.local.MoveDirectory(userID, oldPath, newPath, overwriteFiles); err != nil {
-		// rollback metadata if needed
+	// 4. Move folder on disk
+	if err := s.local.MoveDirectory(ctx, userID, oldPath, newPath, overwriteFiles); err != nil {
 		if targetFolder.ID == folder.ID {
 			_ = s.UpdateFolderMetadata(ctx, folderID, userID, folder.Name)
 		}
+		logger.Error("failed to move folder on disk", "old_path", oldPath, "new_path", newPath, "error", err)
 		return fmt.Errorf("moving folder on disk: %w", err)
 	}
+	logger.Info("folder moved on disk", "old_path", oldPath, "new_path", newPath)
 
-	// 5. Update child file paths in DB
+	// 5. Update child file paths
 	if err := s.updateAllChildFilePaths(ctx, userID, folderID, oldPath, newPath); err != nil {
+		logger.Error("failed to update child file paths", "error", err)
 		return fmt.Errorf("updating child file paths: %w", err)
 	}
+	logger.Info("child file paths updated")
 
+	logger.Info("folder rename completed successfully")
 	return nil
 }
 
