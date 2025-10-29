@@ -234,7 +234,7 @@ func CheckUserFolderAccessHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		access, err := s.CheckUserFileAccess(r.Context(), folderID, userID)
+		access, err := s.CheckUserFileAccess(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to check folder access", "error", err)
 			util.RespondWithError(w, http.StatusForbidden, err.Error())
@@ -267,7 +267,7 @@ func CreateFolderShareHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		folderShare, err := s.CreateFileShare(r.Context(), folderID, userID)
+		folderShare, err := s.CreateFileShare(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to create folder share", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -300,7 +300,7 @@ func DeleteFolderShareHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		err = s.DeleteFolderShare(r.Context(), folderID, userID)
+		err = s.DeleteFolderShare(r.Context(), *folderID, userID)
 
 		if err != nil {
 			logger.Error("failed to delete folder share", "error", err)
@@ -334,7 +334,7 @@ func GetFolderShareHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		folderShare, err := s.GetFolderShare(r.Context(), folderID, userID)
+		folderShare, err := s.GetFolderShare(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to get folder share", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -367,7 +367,7 @@ func GetSharedFolderContentHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		folders, files, err := s.GetSharedFolderContent(r.Context(), folderID, userID)
+		folders, files, err := s.GetSharedFolderContent(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to get shared folder content", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -395,7 +395,7 @@ func ListFolderSharesHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		folderShares, err := s.ListFolderShares(r.Context(), folderID)
+		folderShares, err := s.ListFolderShares(r.Context(), *folderID)
 		if err != nil {
 			logger.Error("failed to list folder shares", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())

@@ -81,36 +81,26 @@ func validateFolderName(name string) error {
 func GetFolderByIDHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("getting folder by ID")
 
-		// Extract user ID from context and path
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID)
-
-		if string(ctxUserID) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
-			return
-		}
-
-		// Get folder ID from path
-		folderIDStr := r.PathValue("folder_id")
-		if folderIDStr == "" {
-			logger.Warn("missing folder_id parameter")
-			util.RespondWithError(w, http.StatusBadRequest, "Missing folder_id parameter")
-			return
-		}
-
-		folderID, err := uuid.Parse(folderIDStr)
+		userID, err := util.GetUserIDFromPathAndCheck(r)
 		if err != nil {
-			logger.Warn("invalid folder ID format", "folder_id_str", folderIDStr, "error", err)
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID format")
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		logger = logger.With("ctx_user_id", userID)
+
+		folderID, err := util.GetFolderIDFromPath(r)
+		if err != nil {
+			logger.Error("invalid folder ID", "error", err)
+			util.RespondWithError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		logger = logger.With("folder_id", folderID)
 
 		logger.Info("retrieving folder by ID")
-		folder, err := s.GetFolderByID(r.Context(), folderID, ctxUserID)
+		folder, err := s.GetFolderByID(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to retrieve folder", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -125,36 +115,26 @@ func GetFolderByIDHandler(s FolderServiceInterface) http.HandlerFunc {
 func ListFoldersByParentHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("listing folders by parent")
 
-		// Extract user ID from context and path
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID, "path_user_id", pathUserID)
-
-		if string(ctxUserID) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
-		// Parse parent ID
-		parentIDStr := r.PathValue("parent_id")
-		var parentID *uuid.UUID
-		if parentIDStr != "" {
-			id, err := uuid.Parse(parentIDStr)
-			if err != nil {
-				logger.Warn("invalid parent ID format", "parent_id_str", parentIDStr, "error", err)
-				util.RespondWithError(w, http.StatusBadRequest, "Invalid parent ID format")
-				return
-			}
-			if id != uuid.Nil {
-				parentID = &id
-			}
+		parentID, err := util.GetParentIDFromPath(r)
+		if err != nil {
+			logger.Error("invalid parent ID", "error", err)
+			util.RespondWithError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 		logger = logger.With("parent_id", parentID)
 
 		logger.Info("listing folders by parent")
-		folders, err := s.ListFoldersByParent(r.Context(), ctxUserID, parentID)
+		folders, err := s.ListFoldersByParent(r.Context(), userID, parentID)
 		if err != nil {
 			logger.Error("failed to list folders", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -169,36 +149,26 @@ func ListFoldersByParentHandler(s FolderServiceInterface) http.HandlerFunc {
 func GetFolderFullPathHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("getting folder full path")
 
-		// Extract user ID from context and path
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID, "path_user_id", pathUserID)
-
-		if string(ctxUserID) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
-			return
-		}
-
-		// Parse folder ID
-		folderIDStr := r.PathValue("folder_id")
-		if folderIDStr == "" {
-			logger.Warn("missing folder_id parameter")
-			util.RespondWithError(w, http.StatusBadRequest, "Missing folder_id parameter")
-			return
-		}
-
-		folderID, err := uuid.Parse(folderIDStr)
+		userID, err := util.GetUserIDFromPathAndCheck(r)
 		if err != nil {
-			logger.Warn("invalid folder ID format", "folder_id_str", folderIDStr, "error", err)
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid folder ID format")
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		logger = logger.With("ctx_user_id", userID)
+
+		folderID, err := util.GetFolderIDFromPath(r)
+		if err != nil {
+			logger.Error("invalid folder ID", "error", err)
+			util.RespondWithError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		logger = logger.With("folder_id", folderID)
 
 		logger.Info("retrieving full folder path")
-		path, err := s.GetFolderFullPath(r.Context(), folderID, ctxUserID)
+		path, err := s.GetFolderFullPath(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to get folder full path", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -213,17 +183,23 @@ func GetFolderFullPathHandler(s FolderServiceInterface) http.HandlerFunc {
 func GetFolderByNameInParentHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("getting folder by name in parent")
 
-		// Extract user ID from context and path
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID, "path_user_id", pathUserID)
-
-		if string(ctxUserID) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
+
+		parentID, err := util.GetParentIDFromPath(r)
+		if err != nil {
+			logger.Error("invalid parent ID", "error", err)
+			util.RespondWithError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		logger = logger.With("parent_id", parentID)
 
 		// Get folder name
 		name := r.URL.Query().Get("name")
@@ -234,27 +210,9 @@ func GetFolderByNameInParentHandler(s FolderServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_name", name)
 
-		// Parse optional parent ID
-		parentIDStr := r.PathValue("parent_id")
-		var parentID *uuid.UUID
-		if parentIDStr != "" {
-			id, err := uuid.Parse(parentIDStr)
-			if err != nil {
-				logger.Warn("invalid parent ID format", "parent_id_str", parentIDStr, "error", err)
-				util.RespondWithError(w, http.StatusBadRequest, "Invalid parent ID format")
-				return
-			}
-			if id != uuid.Nil {
-				parentID = &id
-			}
-		}
-		if parentID != nil {
-			logger = logger.With("parent_id", *parentID)
-		}
-
 		// Call service
 		logger.Info("retrieving folder by name in parent")
-		folder, err := s.GetFolderByNameInParent(r.Context(), ctxUserID, name, parentID)
+		folder, err := s.GetFolderByNameInParent(r.Context(), userID, name, parentID)
 		if err != nil {
 			logger.Error("failed to retrieve folder", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -269,17 +227,23 @@ func GetFolderByNameInParentHandler(s FolderServiceInterface) http.HandlerFunc {
 func CreateFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("creating folder")
 
-		// Extract user ID from context and path
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID, "path_user_id", pathUserID)
-
-		if string(ctxUserID) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
+
+		parentID, err := util.GetParentIDFromPath(r)
+		if err != nil {
+			logger.Error("invalid parent ID", "error", err)
+			util.RespondWithError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		logger = logger.With("parent_id", parentID)
 
 		// Parse request body
 		var req CreateFolderRequest
@@ -297,27 +261,9 @@ func CreateFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		// Parse optional parent ID
-		parentIDStr := r.PathValue("parent_id")
-		var parentID *uuid.UUID
-		if parentIDStr != "" {
-			id, err := uuid.Parse(parentIDStr)
-			if err != nil {
-				logger.Warn("invalid parent ID format", "parent_id_str", parentIDStr, "error", err)
-				util.RespondWithError(w, http.StatusBadRequest, "Invalid parent ID format")
-				return
-			}
-			if id != uuid.Nil {
-				parentID = &id
-			}
-		}
-		if parentID != nil {
-			logger = logger.With("parent_id", *parentID)
-		}
-
 		// Call service
 		logger.Info("creating folder")
-		folder, err := s.CreateFolder(r.Context(), ctxUserID, req.Name, parentID)
+		folder, err := s.CreateFolder(r.Context(), userID, req.Name, parentID)
 		if err != nil {
 			logger.Error("failed to create folder", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -333,16 +279,13 @@ func DownloadFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
 
-		// Extract user ID from context
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID, "path_user_id", pathUserID)
-
-		if strconv.Itoa(int(ctxUserID)) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
 		// Parse request body
 		var req DownloadFoldersRequest
@@ -366,7 +309,7 @@ func DownloadFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 
 		// Stream zip to response
 		logger.Info("starting folder download")
-		foldersMeta, err := s.GetZippedFoldersForDownload(r.Context(), req.FolderIDs, ctxUserID, w)
+		foldersMeta, err := s.GetZippedFoldersForDownload(r.Context(), req.FolderIDs, userID, w)
 		if err != nil {
 			// Cannot change status if streaming started, log error
 			logger.Error("error zipping folders", "error", err)
@@ -381,31 +324,21 @@ func UploadFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
 
-		// Extract user ID
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID, "path_user_id", pathUserID)
-
-		if strconv.Itoa(int(ctxUserID)) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
-		// Parse optional parent folder
-		parentIDStr := r.PathValue("parent_id")
-		var parentID *uuid.UUID
-		if parentIDStr != "" {
-			id, err := uuid.Parse(parentIDStr)
-			if err != nil {
-				logger.Warn("invalid parent ID format", "parent_id", parentIDStr, "error", err)
-				util.RespondWithError(w, http.StatusBadRequest, "Invalid parent ID format")
-				return
-			}
-			if id != uuid.Nil {
-				parentID = &id
-			}
+		parentID, err := util.GetParentIDFromPath(r)
+		if err != nil {
+			logger.Error("invalid parent ID", "error", err)
+			util.RespondWithError(w, http.StatusBadRequest, err.Error())
+			return
 		}
+		logger = logger.With("parent_id", parentID)
 
 		overwrite := r.URL.Query().Get("overwrite") == "true"
 		logger = logger.With("overwrite", overwrite)
@@ -441,7 +374,7 @@ func UploadFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 		}
 
 		logger.Info("uploading folder", "item_count", len(items))
-		result, err := s.UploadFolder(r.Context(), ctxUserID, parentID, items, overwrite, "")
+		result, err := s.UploadFolder(r.Context(), userID, parentID, items, overwrite, "")
 		if err != nil {
 			logger.Error("failed to upload folder", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -456,17 +389,15 @@ func UploadFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 func DeleteFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("starting folder delete")
 
-		// Extract user ID
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID, "path_user_id", pathUserID)
-
-		if strconv.Itoa(int(ctxUserID)) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
 		// Parse request body
 		var req DeleteFoldersRequest
@@ -483,7 +414,7 @@ func DeleteFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 		}
 
 		logger.Info("deleting folders", "folder_count", len(req.FolderIDs))
-		if err := s.DeleteFolders(r.Context(), req.FolderIDs, ctxUserID); err != nil {
+		if err := s.DeleteFolders(r.Context(), req.FolderIDs, userID); err != nil {
 			logger.Error("failed to delete folders", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -497,6 +428,7 @@ func DeleteFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 func MoveFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("starting folder move")
 
 		// Extract user ID
 		ctxUserID, _ := middleware.GetUserID(r.Context())
@@ -555,6 +487,7 @@ func MoveFoldersHandler(s FolderServiceInterface) http.HandlerFunc {
 func RenameFolderHandler(s FolderServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
+		logger.Info("starting folder rename")
 
 		// Extract user ID
 		ctxUserID, _ := middleware.GetUserID(r.Context())

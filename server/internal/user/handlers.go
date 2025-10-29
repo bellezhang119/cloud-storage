@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/middleware"
@@ -32,17 +31,15 @@ func GetUserByIDHandler(service ServiceInterface) http.HandlerFunc {
 		logger := middleware.GetLogger(r.Context())
 		logger.Info("handling GetUserByID request")
 
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID)
-
-		if strconv.Itoa(int(ctxUserID)) != pathUserID {
-			logger.Warn("user ID mismatch between token and path")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
-		user, err := service.GetUserByID(r.Context(), ctxUserID)
+		user, err := service.GetUserByID(r.Context(), userID)
 		if err != nil {
 			logger.Error("failed to fetch user by ID", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, "Failed to fetch user")
@@ -86,15 +83,13 @@ func UpdatePasswordHandler(service ServiceInterface) http.HandlerFunc {
 		logger := middleware.GetLogger(r.Context())
 		logger.Info("handling UpdatePassword request")
 
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID)
-
-		if strconv.Itoa(int(ctxUserID)) != pathUserID {
-			logger.Warn("user ID mismatch between token and path")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
 		var req UpdatePasswordRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -109,13 +104,13 @@ func UpdatePasswordHandler(service ServiceInterface) http.HandlerFunc {
 			return
 		}
 
-		if err := service.UpdateUserPassword(r.Context(), ctxUserID, req.NewPassword); err != nil {
+		if err := service.UpdateUserPassword(r.Context(), userID, req.NewPassword); err != nil {
 			logger.Error("failed to update user password", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, "Failed to update password")
 			return
 		}
 
-		logger.Info("password updated successfully", "user_id", ctxUserID)
+		logger.Info("password updated successfully", "user_id", userID)
 		util.RespondWithJSON(w, http.StatusOK, map[string]string{
 			"message": "Password updated successfully",
 		})
@@ -127,23 +122,21 @@ func DeleteUserHandler(service ServiceInterface) http.HandlerFunc {
 		logger := middleware.GetLogger(r.Context())
 		logger.Info("handling DeleteUser request")
 
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID)
-
-		if strconv.Itoa(int(ctxUserID)) != pathUserID {
-			logger.Warn("user ID mismatch between token and path")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
+		userID, err := util.GetUserIDFromPathAndCheck(r)
+		if err != nil {
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
-		if err := service.DeleteUser(r.Context(), ctxUserID); err != nil {
+		if err := service.DeleteUser(r.Context(), userID); err != nil {
 			logger.Error("failed to delete user", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, "Failed to delete user")
 			return
 		}
 
-		logger.Info("user deleted successfully", "user_id", ctxUserID)
+		logger.Info("user deleted successfully", "user_id", userID)
 		util.RespondWithJSON(w, http.StatusOK, map[string]string{
 			"message": "User deleted successfully",
 		})

@@ -16,7 +16,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// TODO: share handlers, search function
+// TODO: refactor handlers to use handler helper methods, search function
 
 func main() {
 	db, err := config.ConnectDB()

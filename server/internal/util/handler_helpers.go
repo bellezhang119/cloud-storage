@@ -34,16 +34,30 @@ func GetFileIDFromPath(r *http.Request) (uuid.UUID, error) {
 	return fileID, nil
 }
 
-func GetFolderIDFromPath(r *http.Request) (uuid.UUID, error) {
+func GetFolderIDFromPath(r *http.Request) (*uuid.UUID, error) {
 	folderIDStr := r.PathValue("folder_id")
 	if folderIDStr == "" {
-		return uuid.Nil, fmt.Errorf("empty folder id")
+		return nil, nil
 	}
 
 	folderID, err := uuid.Parse(folderIDStr)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid folder id")
+		return nil, fmt.Errorf("invalid folder id")
 	}
 
-	return folderID, nil
+	return &folderID, nil
+}
+
+func GetParentIDFromPath(r *http.Request) (*uuid.UUID, error) {
+	parentIDStr := r.PathValue("parent_id")
+	if parentIDStr == "" {
+		return nil, nil
+	}
+
+	parentID, err := uuid.Parse(parentIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid parent id")
+	}
+
+	return &parentID, nil
 }
