@@ -10,6 +10,25 @@ import (
 	"database/sql"
 )
 
+const adjustUsedStorage = `-- name: AdjustUsedStorage :execrows
+UPDATE users
+SET used_storage = used_storage + $1
+WHERE id = $2
+`
+
+type AdjustUsedStorageParams struct {
+	UsedStorage int64
+	ID          int32
+}
+
+func (q *Queries) AdjustUsedStorage(ctx context.Context, arg AdjustUsedStorageParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, adjustUsedStorage, arg.UsedStorage, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (
     email,
@@ -67,6 +86,17 @@ func (q *Queries) DeleteUser(ctx context.Context, id int32) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const getUsedStorageByID = `-- name: GetUsedStorageByID :one
+SELECT used_storage FROM users WHERE id = $1
+`
+
+func (q *Queries) GetUsedStorageByID(ctx context.Context, id int32) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getUsedStorageByID, id)
+	var used_storage int64
+	err := row.Scan(&used_storage)
+	return used_storage, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one

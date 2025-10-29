@@ -21,6 +21,9 @@ SELECT * FROM users WHERE id = $1;
 -- name: GetUserByVerificationToken :one
 SELECT * FROM users WHERE verification_token = $1;
 
+-- name: GetUsedStorageByID :one
+SELECT used_storage FROM users WHERE id = $1;
+
 -- name: MarkUserAsVerified :execrows
 UPDATE users
 SET is_verified = TRUE,
@@ -47,6 +50,11 @@ UPDATE users
 SET used_storage = $2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
+
+-- name: AdjustUsedStorage :execrows
+UPDATE users
+SET used_storage = used_storage + $1
+WHERE id = $2;
 
 -- name: DeleteUser :execrows
 DELETE FROM users

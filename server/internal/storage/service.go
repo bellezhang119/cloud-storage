@@ -4,6 +4,7 @@ import (
 	"github.com/bellezhang119/cloud-storage/internal/database"
 	"github.com/bellezhang119/cloud-storage/internal/storage/local"
 	"github.com/bellezhang119/cloud-storage/internal/storage/services"
+	"github.com/bellezhang119/cloud-storage/internal/user"
 )
 
 type Service struct {
@@ -12,9 +13,9 @@ type Service struct {
 	Local   local.Storage
 }
 
-func NewService(db *database.Queries, localStore local.Storage) *Service {
-	folderSvc := services.NewFolderService(db, localStore)
-	fileSvc := services.NewFileService(db, localStore)
+func NewService(db *database.Queries, userService *user.Service, localStore local.Storage) *Service {
+	folderSvc := services.NewFolderService(db, userService, localStore)
+	fileSvc := services.NewFileService(db, userService, localStore)
 
 	fileSvc.SetFolderService(folderSvc)
 	folderSvc.SetFileService(fileSvc)

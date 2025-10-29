@@ -20,6 +20,7 @@ type Storage interface {
 	DeleteDirectory(ctx context.Context, userID int32, path string) error
 	MoveFile(ctx context.Context, userID int32, oldPath, newPath string) error
 	MoveDirectory(ctx context.Context, userID int32, oldPath, newPath string, overwriteFiles bool) error
+	GetDirectorySize(ctx context.Context, userID int32, path string) (int64, error)
 	ZipMultipleFolders(ctx context.Context, userID int32, folderPaths []string, w io.Writer) error
 }
 
@@ -271,6 +272,39 @@ func (s *LocalStorage) MoveDirectory(ctx context.Context, userID int32, oldPath,
 
 	logger.Info("directory move completed successfully")
 	return nil
+}
+
+func (s *LocalStorage) GetDirectorySize(ctx context.Context, userID int32, path string) (int64, error) {
+	logger := middleware.GetLogger(ctx).With("user_id", userID, "path", path)
+	logger.Info("starting directory size calculation")
+
+	basePath := filepath.Join(s.BasePath, fmt.Sprint(userID), path)
+	var size int64
+	var fileCount int64
+
+	err := filepath.Walk(basePath, func(fullPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			logger.Warn("error accessing file during walk", "file", fullPath, "error", err)
+			return err // returning error stops the walk — this is intentional
+		}
+		if !info.IsDir() {
+			size += info.Size()
+			fileCount++
+		}
+		return nil
+	})
+
+	if err != nil {
+		logger.Error("failed to calculate directory size", "error", err)
+		return 0, fmt.Errorf("failed to calculate directory size for %s: %w", path, err)
+	}
+
+	logger.Info("directory size calculated successfully",
+		"total_size_bytes", size,
+		"file_count", fileCount,
+	)
+
+	return size, nil
 }
 
 // ZipMultipleFolders recursively zips the specified user folders, preserving their structure, and writes the archive to the provided writer

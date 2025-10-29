@@ -16,7 +16,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// TODO: add logging to handlers and services, track user storage usage
+// TODO: share handlers, search function
 
 func main() {
 	db, err := config.ConnectDB()
@@ -35,7 +35,7 @@ func main() {
 	localStorage := local.NewLocalStorage(basePath)
 	userService := user.NewService(queries)
 	authService := auth.NewService(queries, userService)
-	storageService := storage.NewService(queries, localStorage)
+	storageService := storage.NewService(queries, userService, localStorage)
 
 	portString := os.Getenv("PORT")
 
