@@ -3,7 +3,9 @@ package handlers
 import (
 	"archive/zip"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -60,32 +62,31 @@ func GetFileByIDHandler(s FileServiceInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := middleware.GetLogger(r.Context())
 
-		ctxUserID, _ := middleware.GetUserID(r.Context())
-		pathUserID := r.PathValue("user_id")
-		logger = logger.With("ctx_user_id", ctxUserID)
-
-		if string(ctxUserID) != pathUserID {
-			logger.Warn("token user ID does not match path user ID")
-			util.RespondWithError(w, http.StatusBadRequest, "Mismatch between token and path value: user id")
-			return
-		}
-
-		fileIDStr := r.PathValue("file_id")
-		if fileIDStr == "" {
-			logger.Warn("missing file_id parameter")
-			util.RespondWithError(w, http.StatusBadRequest, "Missing file_id parameter")
-			return
-		}
-
-		fileID, err := uuid.Parse(fileIDStr)
+		userID, err := util.GetUserIDFromPathAndCheck(r)
 		if err != nil {
-			logger.Warn("invalid file ID format", "file_id", fileIDStr, "error", err)
-			util.RespondWithError(w, http.StatusBadRequest, "Invalid file ID format")
+			logger.Error("invalid user ID", "error", err)
+			util.RespondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		logger = logger.With("ctx_user_id", userID)
 
-		file, err := s.GetFileByID(r.Context(), fileID, ctxUserID)
+		fileID, err := util.GetFileIDFromPath(r)
 		if err != nil {
+			logger.Error("invalid file ID", "error", err)
+			util.RespondWithError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		logger = logger.With("file_id", fileID)
+
+		logger.Info("retrieving file by ID")
+
+		file, err := s.GetFileByID(r.Context(), fileID, userID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				logger.Warn("file not found", "file_id", fileID)
+				util.RespondWithError(w, http.StatusNotFound, "file not found")
+				return
+			}
 			logger.Error("failed to get file by ID", "file_id", fileID, "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return

@@ -54,6 +54,7 @@ type FileService interface {
 type FolderServiceImpl struct {
 	queries FolderQueries
 	files   FileService
+	users   UserService
 	local   local.Storage
 }
 
@@ -81,8 +82,8 @@ type UploadResult struct {
 	Conflicts   []UploadConflict `json:"conflicts"`   // List of conflicts (skipped files/folders)
 }
 
-func NewFolderService(q FolderQueries, local local.Storage) *FolderServiceImpl {
-	return &FolderServiceImpl{queries: q, local: local}
+func NewFolderService(q FolderQueries, us UserService, local local.Storage) *FolderServiceImpl {
+	return &FolderServiceImpl{queries: q, users: us, local: local}
 }
 
 func (s *FolderServiceImpl) SetFileService(f FileService) {
@@ -204,6 +205,7 @@ func (s *FolderServiceImpl) UploadFolder(
 	logger.Info("starting folder upload", "item_count", len(items))
 
 	result := UploadResult{}
+	var totalUploadedBytes int64
 
 	for _, item := range items {
 		currentPath := filepath.Join(basePath, item.Name)
@@ -239,6 +241,9 @@ func (s *FolderServiceImpl) UploadFolder(
 				}
 				result.Created = append(result.Created, subResult.Created...)
 				result.Overwritten = append(result.Overwritten, subResult.Overwritten...)
+				for _, f := range item.Children {
+					totalUploadedBytes += f.SizeBytes
+				}
 			}
 			continue
 		}
@@ -256,10 +261,13 @@ func (s *FolderServiceImpl) UploadFolder(
 				return result, fmt.Errorf("deleting existing file before overwrite: %w", err)
 			}
 			result.Overwritten = append(result.Overwritten, currentPath)
+			totalUploadedBytes += item.SizeBytes - file.SizeBytes // only net increase
 			logger.Info("file overwritten", "path", currentPath, "file_id", file.ID)
 		} else if file.ID != uuid.Nil && !overwrite {
 			logger.Info("file skipped (exists and overwrite=false)", "path", currentPath, "file_id", file.ID)
 			continue
+		} else {
+			totalUploadedBytes += item.SizeBytes
 		}
 
 		// Upload file
@@ -270,6 +278,16 @@ func (s *FolderServiceImpl) UploadFolder(
 		}
 		result.Created = append(result.Created, currentPath)
 		logger.Info("file uploaded", "path", currentPath)
+	}
+
+	// --- Update used storage ---
+	if totalUploadedBytes > 0 {
+		if err := s.users.AdjustUsedStorage(ctx, userID, totalUploadedBytes); err != nil {
+			logger.Warn("failed to update user's used storage", "user_id", userID, "error", err)
+			// Do not fail the entire upload, just log
+		} else {
+			logger.Info("user's used storage updated", "user_id", userID, "bytes_added", totalUploadedBytes)
+		}
 	}
 
 	logger.Info("folder upload completed", "created_count", len(result.Created), "overwritten_count", len(result.Overwritten))
@@ -300,7 +318,19 @@ func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.
 		paths = append(paths, folderPath{ID: id, Path: path})
 	}
 
-	// 2. Delete all folder records (DB cascades handle children)
+	// 2. Calculate total size of all folders (to adjust used storage)
+	var totalFreed int64
+	for _, p := range paths {
+		size, err := s.local.GetDirectorySize(ctx, userID, p.Path)
+		if err != nil {
+			logger.Warn("failed to get folder size before deletion", "folder_path", p.Path, "error", err)
+			continue
+		}
+		totalFreed += size
+	}
+	logger.Info("calculated total freed storage", "bytes", totalFreed)
+
+	// 3. Delete all folder records (DB cascades handle children)
 	rows, err := s.queries.DeleteFolders(ctx, database.DeleteFoldersParams{
 		Column1: folderIDs,
 		UserID:  util.ToNullInt32(&userID),
@@ -315,7 +345,7 @@ func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.
 	}
 	logger.Info("folders deleted from DB", "deleted_count", rows)
 
-	// 3. Delete directories from storage (best effort)
+	// 4. Delete directories from storage (best effort)
 	for _, p := range paths {
 		if err := s.local.DeleteDirectory(ctx, userID, p.Path); err != nil {
 			logger.Warn("failed to remove folder from storage", "folder_path", p.Path, "error", err)
@@ -324,7 +354,17 @@ func (s *FolderServiceImpl) DeleteFolders(ctx context.Context, folderIDs []uuid.
 		}
 	}
 
-	logger.Info("folder deletion completed")
+	// 5. Adjust user’s used storage (decrement)
+	if totalFreed > 0 {
+		if err := s.users.AdjustUsedStorage(ctx, userID, -totalFreed); err != nil {
+			logger.Error("failed to adjust user's used storage", "error", err)
+			// Not returning here — we don’t want to fail the delete if storage update fails
+		} else {
+			logger.Info("user's used storage decremented", "bytes_freed", totalFreed)
+		}
+	}
+
+	logger.Info("folder deletion completed successfully")
 	return nil
 }
 

@@ -35,19 +35,24 @@ type FolderService interface {
 	GetFolderFullPath(ctx context.Context, folderID uuid.UUID, userID int32) (string, error)
 }
 
-type FileDownload struct {
-	File    database.File
-	Content io.ReadCloser
+type UserService interface {
+	AdjustUsedStorage(ctx context.Context, userID int32, delta int64) error
 }
 
 type FileServiceImpl struct {
 	queries FileQueries
 	folders FolderService
+	users   UserService
 	local   local.Storage
 }
 
-func NewFileService(q FileQueries, local local.Storage) *FileServiceImpl {
-	return &FileServiceImpl{queries: q, local: local}
+type FileDownload struct {
+	File    database.File
+	Content io.ReadCloser
+}
+
+func NewFileService(q FileQueries, us UserService, local local.Storage) *FileServiceImpl {
+	return &FileServiceImpl{queries: q, users: us, local: local}
 }
 
 func (s *FileServiceImpl) SetFolderService(f FolderService) {
@@ -131,7 +136,7 @@ func (s *FileServiceImpl) UploadFile(
 		return database.File{}, err
 	}
 
-	// Build folder path relative to user root
+	// Build folder path
 	var folderPath string
 	if folderID != nil {
 		var err error
@@ -154,6 +159,7 @@ func (s *FileServiceImpl) UploadFile(
 		return database.File{}, fmt.Errorf("checking existing file: %w", err)
 	}
 
+	var sizeDelta int64 = sizeBytes
 	if existingFile.ID != uuid.Nil {
 		if overwrite {
 			logger.Info("overwriting existing file", "existing_file_id", existingFile.ID)
@@ -161,11 +167,19 @@ func (s *FileServiceImpl) UploadFile(
 				logger.Error("failed to delete existing file for overwrite", "file_id", existingFile.ID, "error", err)
 				return database.File{}, fmt.Errorf("deleting existing file for overwrite: %w", err)
 			}
+			// subtract size of deleted file
+			sizeDelta -= existingFile.SizeBytes
 		} else {
 			err := fmt.Errorf("file '%s' already exists in folder", name)
 			logger.Warn("upload aborted: file already exists", "name", name)
 			return database.File{}, err
 		}
+	}
+
+	// Update user's used storage
+	if err := s.users.AdjustUsedStorage(ctx, userID, sizeDelta); err != nil {
+		logger.Error("failed to update user's used storage", "user_id", userID, "delta", sizeDelta, "error", err)
+		return database.File{}, fmt.Errorf("updating used storage: %w", err)
 	}
 
 	// Create new DB record
@@ -187,6 +201,7 @@ func (s *FileServiceImpl) UploadFile(
 	if err := s.local.SaveFile(ctx, userID, filePath, content); err != nil {
 		logger.Error("failed to save file content", "path", filePath, "error", err)
 		_ = s.DeleteFiles(ctx, []uuid.UUID{fileMeta.ID}, userID) // rollback DB
+		_ = s.users.AdjustUsedStorage(ctx, userID, -sizeBytes)   // rollback storage
 		return database.File{}, fmt.Errorf("saving file: %w", err)
 	}
 
@@ -282,6 +297,7 @@ func (s *FileServiceImpl) DeleteFiles(ctx context.Context, fileIDs []uuid.UUID, 
 
 	// 1. Fetch all files metadata first
 	var files []database.File
+	var totalSize int64 = 0
 	for _, id := range fileIDs {
 		logger.Debug("fetching file metadata", "file_id", id)
 		file, err := s.GetFileByID(ctx, id, userID)
@@ -295,6 +311,7 @@ func (s *FileServiceImpl) DeleteFiles(ctx context.Context, fileIDs []uuid.UUID, 
 			return err
 		}
 		files = append(files, file)
+		totalSize += file.SizeBytes
 	}
 
 	// 2. Delete DB records
@@ -327,12 +344,30 @@ func (s *FileServiceImpl) DeleteFiles(ctx context.Context, fileIDs []uuid.UUID, 
 	if len(failed) > 0 {
 		err := fmt.Errorf("some files removed from DB but failed to delete from storage: %s", strings.Join(failed, "; "))
 		logger.Warn("partial delete: some files failed to remove from storage", "user_id", userID, "failed_files", failed)
+		totalDeleted := totalSize
+		for _, f := range failed {
+			for _, file := range files {
+				if strings.HasPrefix(f, file.Name) {
+					totalDeleted -= file.SizeBytes
+				}
+			}
+		}
+		if err := s.users.AdjustUsedStorage(ctx, userID, -totalDeleted); err != nil {
+			logger.Error("failed to update used storage after partial delete", "user_id", userID, "error", err)
+		}
 		return err
+	}
+
+	// 4. Update used storage
+	if err := s.users.AdjustUsedStorage(ctx, userID, -totalSize); err != nil {
+		logger.Error("failed to update user's used storage after delete", "user_id", userID, "deleted_size", totalSize, "error", err)
+		return fmt.Errorf("updating used storage: %w", err)
 	}
 
 	logger.Info("delete operation completed successfully",
 		"user_id", userID,
 		"deleted_files", len(files),
+		"freed_bytes", totalSize,
 	)
 	return nil
 }
