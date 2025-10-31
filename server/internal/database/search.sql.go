@@ -9,112 +9,94 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
-const searchFilesAndFolders = `-- name: SearchFilesAndFolders :many
-WITH RECURSIVE folder_hierarchy AS (
-    SELECT f.id AS folder_id, f.name AS folder_name, f.parent_id, f.user_id, f.created_at, f.updated_at
-    FROM folders f
-    WHERE f.id = $1
-    UNION ALL
-    SELECT f2.id AS folder_id, f2.name AS folder_name, f2.parent_id, f2.user_id, f2.created_at, f2.updated_at
-    FROM folders f2
-    INNER JOIN folder_hierarchy fh ON f2.parent_id = fh.folder_id
-)
+const searchFilesAndFolders = `-- name: SearchFilesAndFolders :one
 SELECT
-    files.id AS id,
-    files.name AS name,
-    files.file_path AS file_path,
-    files.size_bytes AS size_bytes,
-    files.mime_type AS mime_type,
-    files.created_at AS created_at,
-    files.updated_at AS updated_at
-FROM files
-WHERE files.folder_id IN (SELECT folder_id FROM folder_hierarchy)
-  AND files.user_id = $2
-  AND ($3::TEXT IS NULL OR files.name ILIKE '%' || $3 || '%')
-  AND ($6::TEXT[] IS NULL OR files.mime_type = ANY($6))
-UNION ALL
-SELECT
-    fh.folder_id AS id,
-    fh.folder_name AS name,
-    NULL AS file_path,
-    NULL AS size_bytes,
-    'folder' AS mime_type,
-    fh.created_at,
-    fh.updated_at
-FROM folder_hierarchy fh
-WHERE fh.user_id = $2
-  AND ($3::TEXT IS NULL OR fh.folder_name ILIKE '%' || $3 || '%')
-  AND ($6::TEXT IS NULL OR 'folder' = $6)
-ORDER BY
-    CASE WHEN $4 = 'name' AND $5 = 'asc' THEN name END ASC,
-    CASE WHEN $4 = 'name' AND $5 = 'desc' THEN name END DESC,
-    CASE WHEN $4 = 'created_at' AND $5 = 'asc' THEN created_at END ASC,
-    CASE WHEN $4 = 'created_at' AND $5 = 'desc' THEN created_at END DESC,
-    CASE WHEN $4 = 'updated_at' AND $5 = 'asc' THEN updated_at END ASC,
-    CASE WHEN $4 = 'updated_at' AND $5 = 'desc' THEN updated_at END DESC,
-    CASE WHEN $4 = 'size_bytes' AND $5 = 'asc' THEN size_bytes END ASC,
-    CASE WHEN $4 = 'size_bytes' AND $5 = 'desc' THEN size_bytes END DESC,
-    CASE WHEN $4 = 'mime_type' AND $5 = 'asc' THEN mime_type END ASC,
-    CASE WHEN $4 = 'mime_type' AND $5 = 'desc' THEN mime_type END DESC
+    -- Folders array
+    COALESCE(
+            (
+                SELECT JSON_AGG(
+                               JSON_BUILD_OBJECT(
+                                       'id', f.id,
+                                       'user_id', f.user_id,
+                                       'name', f.name,
+                                       'parent_id', f.parent_id,
+                                       'created_at', f.created_at,
+                                       'updated_at', f.updated_at
+                               ) ORDER BY
+                                   CASE WHEN $3 = 'name' AND $4 = 'asc' THEN f.name END ASC,
+                                   CASE WHEN $3 = 'name' AND $4 = 'desc' THEN f.name END DESC,
+                                   CASE WHEN $3 = 'created_at' AND $4 = 'asc' THEN f.created_at END ASC,
+                                   CASE WHEN $3 = 'created_at' AND $4 = 'desc' THEN f.created_at END DESC,
+                                   CASE WHEN $3 = 'updated_at' AND $4 = 'asc' THEN f.updated_at END ASC,
+                                   CASE WHEN $3 = 'updated_at' AND $4 = 'desc' THEN f.updated_at END DESC
+                       )
+                FROM folders f
+                WHERE f.user_id = $2
+                  AND ($1::TEXT IS NULL OR f.name ILIKE '%' || $1 || '%')
+            ),
+            '[]'
+    ) AS folders,
+
+    -- Files array
+    COALESCE(
+            (
+                SELECT JSON_AGG(
+                               JSON_BUILD_OBJECT(
+                                       'id', f.id,
+                                       'user_id', f.user_id,
+                                       'folder_id', f.folder_id,
+                                       'name', f.name,
+                                       'file_path', f.file_path,
+                                       'size_bytes', f.size_bytes,
+                                       'mime_type', f.mime_type,
+                                       'created_at', f.created_at,
+                                       'updated_at', f.updated_at
+                               ) ORDER BY
+                                   CASE WHEN $3 = 'name' AND $4 = true THEN f.name END,
+                                   CASE WHEN $3 = 'name' AND $4 = false THEN f.name END DESC,
+                                   CASE WHEN $3 = 'created_at' AND $4 = true THEN f.created_at END,
+                                   CASE WHEN $3 = 'created_at' AND $4 = false THEN f.created_at END DESC,
+                                   CASE WHEN $3 = 'updated_at' AND $4 = true THEN f.updated_at END,
+                                   CASE WHEN $3 = 'updated_at' AND $4 = false THEN f.updated_at END DESC,
+                                   CASE WHEN $3 = 'mime_type' AND $4 = true THEN f.mime_type END,
+                                   CASE WHEN $3 = 'mime_type' AND $4 = false THEN f.mime_type END DESC,
+                                   CASE WHEN $3 = 'size_bytes' AND $4 = true THEN f.size_bytes END,
+                                   CASE WHEN $3 = 'size_bytes' AND $4 = false THEN f.size_bytes END DESC
+                       )
+                FROM files f
+                WHERE f.user_id = $2
+                  AND ($1::TEXT IS NULL OR f.name ILIKE '%' || $1 || '%')
+                  AND ($5::TEXT[] IS NULL OR f.mime_type = ANY($5))
+            ),
+            '[]'
+    ) AS files
 `
 
 type SearchFilesAndFoldersParams struct {
-	ID      uuid.UUID
+	Column1 string
 	UserID  sql.NullInt32
-	Column3 string
+	Column3 interface{}
 	Column4 interface{}
-	Column5 interface{}
-	Column6 []string
+	Column5 []string
 }
 
 type SearchFilesAndFoldersRow struct {
-	ID        uuid.UUID
-	Name      string
-	FilePath  string
-	SizeBytes int64
-	MimeType  sql.NullString
-	CreatedAt sql.NullTime
-	UpdatedAt sql.NullTime
+	Folders interface{}
+	Files   interface{}
 }
 
-func (q *Queries) SearchFilesAndFolders(ctx context.Context, arg SearchFilesAndFoldersParams) ([]SearchFilesAndFoldersRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchFilesAndFolders,
-		arg.ID,
+func (q *Queries) SearchFilesAndFolders(ctx context.Context, arg SearchFilesAndFoldersParams) (SearchFilesAndFoldersRow, error) {
+	row := q.db.QueryRowContext(ctx, searchFilesAndFolders,
+		arg.Column1,
 		arg.UserID,
 		arg.Column3,
 		arg.Column4,
-		arg.Column5,
-		pq.Array(arg.Column6),
+		pq.Array(arg.Column5),
 	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []SearchFilesAndFoldersRow
-	for rows.Next() {
-		var i SearchFilesAndFoldersRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.FilePath,
-			&i.SizeBytes,
-			&i.MimeType,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	var i SearchFilesAndFoldersRow
+	err := row.Scan(&i.Folders, &i.Files)
+	return i, err
 }

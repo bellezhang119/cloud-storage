@@ -5,12 +5,14 @@ import (
 
 	"github.com/bellezhang119/cloud-storage/internal/auth"
 	"github.com/bellezhang119/cloud-storage/internal/middleware"
+	"github.com/bellezhang119/cloud-storage/internal/search"
+	"github.com/bellezhang119/cloud-storage/internal/share"
 	"github.com/bellezhang119/cloud-storage/internal/storage"
 	"github.com/bellezhang119/cloud-storage/internal/user"
 	"github.com/bellezhang119/cloud-storage/internal/util"
 )
 
-func NewRouter(authService *auth.Service, userService *user.Service, storageService *storage.Service) http.Handler {
+func NewRouter(authService *auth.Service, userService *user.Service, storageService *storage.Service, shareService *share.Service, searchService *search.Service) http.Handler {
 	authMiddleware := middleware.AuthMiddleware(util.VerifyAccessToken)
 	mux := http.NewServeMux()
 	loggedMux := middleware.LoggingMiddleware(mux)
@@ -49,6 +51,11 @@ func NewRouter(authService *auth.Service, userService *user.Service, storageServ
 	mux.Handle("DELETE /user/{user_id}/folders", authMiddleware(storage.DeleteFoldersHandler(storageService)))
 	mux.Handle("PATCH /user/{user_id}/folder/{parent_id}/move", authMiddleware(storage.MoveFoldersHandler(storageService)))
 	mux.Handle("PATCH /user/{user_id}/folder/{folder_id}", authMiddleware(storage.RenameFolderHandler(storageService)))
+
+	// TODO: share routes
+
+	// Search route
+	mux.Handle("GET /user/{user_id}/search", authMiddleware(search.SearchHandler(searchService)))
 
 	// Health checks
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
