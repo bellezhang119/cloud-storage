@@ -10,8 +10,8 @@ import (
 
 type authContextKey string
 
-const userIDKey authContextKey = "user_id"
-const userEmailKey authContextKey = "user_email"
+const UserIDKey authContextKey = "user_id"
+const UserEmailKey authContextKey = "user_email"
 
 type TokenVerifier func(tokenStr string) (jwt.MapClaims, error)
 
@@ -44,8 +44,8 @@ func AuthMiddleware(verify TokenVerifier) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), userIDKey, int32(userID))
-			ctx = context.WithValue(ctx, userEmailKey, email)
+			ctx := context.WithValue(r.Context(), UserIDKey, int32(userID))
+			ctx = context.WithValue(ctx, UserEmailKey, email)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -53,11 +53,11 @@ func AuthMiddleware(verify TokenVerifier) func(http.Handler) http.Handler {
 }
 
 func GetUserID(ctx context.Context) (int32, bool) {
-	id, ok := ctx.Value(userIDKey).(int32)
+	id, ok := ctx.Value(UserIDKey).(int32)
 	return id, ok
 }
 
 func GetUserEmail(ctx context.Context) (string, bool) {
-	email, ok := ctx.Value(userEmailKey).(string)
+	email, ok := ctx.Value(UserEmailKey).(string)
 	return email, ok
 }

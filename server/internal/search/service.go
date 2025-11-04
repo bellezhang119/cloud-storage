@@ -23,13 +23,14 @@ type Result struct {
 	Files   []database.File   `json:"files"`
 }
 
-func NewSearchService(q Queries) *Service {
+func NewService(q Queries) *Service {
 	return &Service{queries: q}
 }
 
 func (s *Service) SearchFilesAndFolders(ctx context.Context, search string, userID int32, sortBy string, asc bool, filter []string) (Result, error) {
 	logger := middleware.GetLogger(ctx)
 	logger.Info("search started")
+
 	row, err := s.queries.SearchFilesAndFolders(ctx, database.SearchFilesAndFoldersParams{
 		Column1: search,
 		UserID:  util.ToNullInt32(&userID),
@@ -44,19 +45,30 @@ func (s *Service) SearchFilesAndFolders(ctx context.Context, search string, user
 
 	var res Result
 
-	// Unmarshal folders
-	foldersJSON, _ := json.Marshal(row.Folders)
-	if err := json.Unmarshal(foldersJSON, &res.Folders); err != nil {
-		logger.Error("folder json unmarshal failed", "error", err)
-		return Result{}, fmt.Errorf("failed to unmarshal folders: %w", err)
+	// Decode folders
+	if row.Folders != nil {
+		data, ok := row.Folders.([]byte)
+		if !ok {
+			data, _ = json.Marshal(row.Folders) // fallback
+		}
+		if err := json.Unmarshal(data, &res.Folders); err != nil {
+			logger.Error("folder json unmarshal failed", "error", err)
+			return Result{}, fmt.Errorf("failed to unmarshal folders: %w", err)
+		}
 	}
 
-	// Unmarshal files
-	filesJSON, _ := json.Marshal(row.Files)
-	if err := json.Unmarshal(filesJSON, &res.Files); err != nil {
-		logger.Error("file json unmarshal failed", "error", err)
-		return Result{}, fmt.Errorf("failed to unmarshal files: %w", err)
+	// Decode files
+	if row.Files != nil {
+		data, ok := row.Files.([]byte)
+		if !ok {
+			data, _ = json.Marshal(row.Files)
+		}
+		if err := json.Unmarshal(data, &res.Files); err != nil {
+			logger.Error("file json unmarshal failed", "error", err)
+			return Result{}, fmt.Errorf("failed to unmarshal files: %w", err)
+		}
 	}
 
+	logger.Info("search completed successfully")
 	return res, nil
 }

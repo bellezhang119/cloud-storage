@@ -27,7 +27,7 @@ func NewRouter(authService *auth.Service, userService *user.Service, storageServ
 	// User routes
 	mux.Handle("GET /user/{user_id}", authMiddleware(user.GetUserByIDHandler(userService)))
 	mux.Handle("GET /user/email/{user_email}", authMiddleware(user.GetUserByEmailHandler(userService)))
-	mux.Handle("PATCH /user/{user_id}/", authMiddleware(user.UpdatePasswordHandler(userService)))
+	mux.Handle("PATCH /user/{user_id}/password", authMiddleware(user.UpdatePasswordHandler(userService)))
 	mux.Handle("DELETE /user/{user_id}", authMiddleware(user.DeleteUserHandler(userService)))
 
 	// File routes
@@ -52,7 +52,20 @@ func NewRouter(authService *auth.Service, userService *user.Service, storageServ
 	mux.Handle("PATCH /user/{user_id}/folder/{parent_id}/move", authMiddleware(storage.MoveFoldersHandler(storageService)))
 	mux.Handle("PATCH /user/{user_id}/folder/{folder_id}", authMiddleware(storage.RenameFolderHandler(storageService)))
 
-	// TODO: share routes
+	// Share routes
+	mux.Handle("GET /user/{user_id}/file/{file_id}/access", authMiddleware(share.CheckUserFileAccessHandler(shareService)))
+	mux.Handle("POST /user/{user_id}/file/{file_id}/share", authMiddleware(share.CreateFileShareHandler(shareService)))
+	mux.Handle("DELETE /user/{user_id}/file/{file_id}/share", authMiddleware(share.DeleteFileShareHandler(shareService)))
+	mux.Handle("GET /user/{user_id}/file/{file_id}/share", authMiddleware(share.GetFileShareHandler(shareService)))
+	mux.Handle("GET /file/{file_id}/shares", authMiddleware(share.ListFileSharesHandler(shareService)))
+	mux.Handle("GET /user/{user_id}/files/shares", authMiddleware(share.ListFilesSharedWithUserHandler(shareService)))
+	mux.Handle("GET /user/{user_id}/folder/{folder_id}/access", authMiddleware(share.CheckUserFolderAccessHandler(shareService)))
+	mux.Handle("POST user/{user_id}/folder/{folder_id}/share", authMiddleware(share.CreateFolderShareHandler(shareService)))
+	mux.Handle("DELETE /user/{user_id}/folder/{folder_id}/share", authMiddleware(share.DeleteFolderShareHandler(shareService)))
+	mux.Handle("GET /user/{user_id}/folder/{folder_id}/share", authMiddleware(share.GetFolderShareHandler(shareService)))
+	mux.Handle("GET /user/{user_id}/folder/{folder_id}/content", authMiddleware(share.GetSharedFolderContentHandler(shareService)))
+	mux.Handle("GET /folder/{folder_id}/shares", authMiddleware(share.ListFolderSharesHandler(shareService)))
+	mux.Handle("GET /user/{user_id}/folders/shares", authMiddleware(share.ListFoldersSharedWithUserHandler(shareService)))
 
 	// Search route
 	mux.Handle("GET /user/{user_id}/search", authMiddleware(search.SearchHandler(searchService)))

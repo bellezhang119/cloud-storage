@@ -9,14 +9,14 @@ import (
 	"github.com/bellezhang119/cloud-storage/internal/auth"
 	"github.com/bellezhang119/cloud-storage/internal/config"
 	"github.com/bellezhang119/cloud-storage/internal/database"
+	"github.com/bellezhang119/cloud-storage/internal/search"
 	"github.com/bellezhang119/cloud-storage/internal/server"
+	"github.com/bellezhang119/cloud-storage/internal/share"
 	"github.com/bellezhang119/cloud-storage/internal/storage"
 	"github.com/bellezhang119/cloud-storage/internal/storage/local"
 	"github.com/bellezhang119/cloud-storage/internal/user"
 	"github.com/joho/godotenv"
 )
-
-// TODO: refactor handlers to use handler helper methods, search function
 
 func main() {
 	db, err := config.ConnectDB()
@@ -36,6 +36,8 @@ func main() {
 	userService := user.NewService(queries)
 	authService := auth.NewService(queries, userService)
 	storageService := storage.NewService(queries, userService, localStorage)
+	searchService := search.NewService(queries)
+	shareService := share.NewService(queries)
 
 	portString := os.Getenv("PORT")
 
@@ -45,7 +47,7 @@ func main() {
 
 	fmt.Println("Port:", portString)
 
-	router := server.NewRouter(authService, userService, storageService)
+	router := server.NewRouter(authService, userService, storageService, shareService, searchService)
 
 	err = http.ListenAndServe(portString, router)
 

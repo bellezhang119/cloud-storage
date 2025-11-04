@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bellezhang119/cloud-storage/internal/database"
+	"github.com/bellezhang119/cloud-storage/internal/middleware"
 	"github.com/bellezhang119/cloud-storage/internal/user"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -50,9 +51,13 @@ func TestGetUserByIDHandler(t *testing.T) {
 	mockSvc.On("GetUserByID", mock.Anything, int32(1)).Return(mockUser, nil)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /users/{id}", user.GetUserByIDHandler(mockSvc))
+	mux.HandleFunc("GET /user/{user_id}", user.GetUserByIDHandler(mockSvc))
 
-	req := httptest.NewRequest("GET", "/users/1", nil)
+	req := httptest.NewRequest("GET", "/user/1", nil)
+
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, int32(1))
+	req = req.WithContext(ctx)
+
 	rr := httptest.NewRecorder()
 
 	mux.ServeHTTP(rr, req)
@@ -73,9 +78,13 @@ func TestGetUserByEmailHandler(t *testing.T) {
 	mockSvc.On("GetUserByEmail", mock.Anything, "bar@foo.com").Return(mockUser, nil)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /users/email", user.GetUserByEmailHandler(mockSvc))
+	mux.HandleFunc("GET /user/email/{user_email}", user.GetUserByEmailHandler(mockSvc))
 
-	req := httptest.NewRequest("GET", "/users/email?email=bar@foo.com", nil)
+	req := httptest.NewRequest("GET", "/user/email/bar@foo.com", nil)
+
+	ctx := context.WithValue(req.Context(), middleware.UserEmailKey, "bar@foo.com")
+	req = req.WithContext(ctx)
+
 	rr := httptest.NewRecorder()
 
 	mux.ServeHTTP(rr, req)
@@ -91,30 +100,17 @@ func TestGetUserByEmailHandler(t *testing.T) {
 
 func TestUpdatePasswordHandler(t *testing.T) {
 	mockSvc := &MockService{}
-	mockSvc.On("UpdatePassword", mock.Anything, int32(1), "password123").Return(nil)
+	mockSvc.On("UpdateUserPassword", mock.Anything, int32(1), "password123").Return(nil)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("PATCH /users/{id}/password", user.UpdatePasswordHandler(mockSvc))
+	mux.HandleFunc("PATCH /user/{user_id}/password", user.UpdatePasswordHandler(mockSvc))
 
 	body := `{"new_password":"password123"}`
-	req := httptest.NewRequest("PATCH", "/users/1/password", bytes.NewBufferString(body))
-	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("PATCH", "/user/1/password", bytes.NewBufferString(body))
 
-	mux.ServeHTTP(rr, req)
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, int32(1))
+	req = req.WithContext(ctx)
 
-	assert.Equal(t, http.StatusOK, rr.Code)
-	mockSvc.AssertExpectations(t)
-}
-
-func TestUpdateStorageHandler(t *testing.T) {
-	mockSvc := &MockService{}
-	mockSvc.On("UpdateStorage", mock.Anything, int32(1), int64(1024)).Return(nil)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("PATCH /users/{id}/storage", user.UpdateStorageHandler(mockSvc))
-
-	body := `{"new_used_storage":1024}`
-	req := httptest.NewRequest("PATCH", "/users/1/storage", bytes.NewBufferString(body))
 	rr := httptest.NewRecorder()
 
 	mux.ServeHTTP(rr, req)
@@ -125,14 +121,17 @@ func TestUpdateStorageHandler(t *testing.T) {
 
 func TestDeleteUserHandler(t *testing.T) {
 	mockSvc := &MockService{}
-	mockSvc.On("Delete", mock.Anything, int32(1)).Return(nil)
+	mockSvc.On("DeleteUser", mock.Anything, int32(1)).Return(nil)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("DELETE /users/{id}", user.DeleteUserHandler(mockSvc))
+	mux.HandleFunc("DELETE /users/{user_id}", user.DeleteUserHandler(mockSvc))
 
 	req := httptest.NewRequest("DELETE", "/users/1", nil)
-	rr := httptest.NewRecorder()
 
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, int32(1))
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)

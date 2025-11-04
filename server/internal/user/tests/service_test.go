@@ -34,8 +34,18 @@ func (m *MockQueries) UpdateUsedStorage(ctx context.Context, params database.Upd
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockQueries) GetUsedStorageByID(ctx context.Context, id int32) (int64, error) {
+	args := m.Called(ctx, id)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *MockQueries) DeleteUser(ctx context.Context, userID int32) (int64, error) {
 	args := m.Called(ctx, userID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockQueries) AdjustUsedStorage(ctx context.Context, arg database.AdjustUsedStorageParams) (int64, error) {
+	args := m.Called(ctx, arg)
 	return args.Get(0).(int64), args.Error(1)
 }
 

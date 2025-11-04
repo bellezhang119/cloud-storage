@@ -3,6 +3,7 @@ package util
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/bellezhang119/cloud-storage/internal/middleware"
 	"github.com/google/uuid"
@@ -13,8 +14,8 @@ func GetUserIDFromPathAndCheck(r *http.Request) (int32, error) {
 	ctxUserID, _ := middleware.GetUserID(r.Context())
 	pathUserID := r.PathValue("user_id")
 
-	if string(ctxUserID) != pathUserID {
-		return 0, fmt.Errorf("mismatch between context and path user ID")
+	if strconv.Itoa(int(ctxUserID)) != pathUserID {
+		return 0, fmt.Errorf("mismatch between context and path user ID: %v, %v", ctxUserID, pathUserID)
 	}
 
 	return ctxUserID, nil

@@ -27,7 +27,7 @@ func SearchHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("ctx_user_id", userID)
 
-		search := r.URL.Query().Get("search")
+		search := r.URL.Query().Get("query")
 		sortBy := r.URL.Query().Get("sortBy")
 
 		allowedSortBy := map[string]bool{
