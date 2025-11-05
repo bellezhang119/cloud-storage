@@ -60,7 +60,7 @@ func NewRouter(authService *auth.Service, userService *user.Service, storageServ
 	mux.Handle("GET /file/{file_id}/shares", authMiddleware(share.ListFileSharesHandler(shareService)))
 	mux.Handle("GET /user/{user_id}/files/shares", authMiddleware(share.ListFilesSharedWithUserHandler(shareService)))
 	mux.Handle("GET /user/{user_id}/folder/{folder_id}/access", authMiddleware(share.CheckUserFolderAccessHandler(shareService)))
-	mux.Handle("POST user/{user_id}/folder/{folder_id}/share", authMiddleware(share.CreateFolderShareHandler(shareService)))
+	mux.Handle("POST /user/{user_id}/folder/{folder_id}/share", authMiddleware(share.CreateFolderShareHandler(shareService)))
 	mux.Handle("DELETE /user/{user_id}/folder/{folder_id}/share", authMiddleware(share.DeleteFolderShareHandler(shareService)))
 	mux.Handle("GET /user/{user_id}/folder/{folder_id}/share", authMiddleware(share.GetFolderShareHandler(shareService)))
 	mux.Handle("GET /user/{user_id}/folder/{folder_id}/content", authMiddleware(share.GetSharedFolderContentHandler(shareService)))

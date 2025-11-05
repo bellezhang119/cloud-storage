@@ -126,7 +126,7 @@ func DeleteFileShareHandler(s ServiceInterface) http.HandlerFunc {
 		}
 
 		logger.Info("deleted file share", "file_id", fileID)
-		util.RespondWithJSON(w, http.StatusNoContent, nil)
+		util.RespondWithJSON(w, http.StatusOK, nil)
 	}
 }
 
@@ -234,7 +234,7 @@ func CheckUserFolderAccessHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		access, err := s.CheckUserFileAccess(r.Context(), *folderID, userID)
+		access, err := s.CheckUserFolderAccess(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to check folder access", "error", err)
 			util.RespondWithError(w, http.StatusForbidden, err.Error())
@@ -267,14 +267,14 @@ func CreateFolderShareHandler(s ServiceInterface) http.HandlerFunc {
 		}
 		logger = logger.With("folder_id", folderID)
 
-		folderShare, err := s.CreateFileShare(r.Context(), *folderID, userID)
+		folderShare, err := s.CreateFolderShare(r.Context(), *folderID, userID)
 		if err != nil {
 			logger.Error("failed to create folder share", "error", err)
 			util.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		logger.Info("created folder share", "folder_id", folderShare.FileID)
+		logger.Info("created folder share", "folder_id", folderShare.FolderID)
 		util.RespondWithJSON(w, http.StatusCreated, folderShare)
 	}
 }
@@ -309,7 +309,7 @@ func DeleteFolderShareHandler(s ServiceInterface) http.HandlerFunc {
 		}
 
 		logger.Info("deleted folder share", "folder_id", folderID)
-		util.RespondWithJSON(w, http.StatusNoContent, nil)
+		util.RespondWithJSON(w, http.StatusOK, nil)
 	}
 }
 
