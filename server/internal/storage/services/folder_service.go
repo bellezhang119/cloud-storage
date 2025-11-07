@@ -519,25 +519,25 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 		return fmt.Errorf("new folder name is required")
 	}
 
-	// 1. Fetch folder and parent info
+	// 1. Fetch folder info
 	folder, err := s.GetFolderByID(ctx, folderID, userID)
 	if err != nil {
 		logger.Error("failed to fetch folder", "error", err)
 		return fmt.Errorf("fetching folder: %w", err)
 	}
 
+	// 2. Get old full path
 	oldPath, err := s.GetFolderFullPath(ctx, folderID, userID)
 	if err != nil {
 		logger.Error("failed to get old folder path", "error", err)
-		return fmt.Errorf("building old folder path: %w", err)
+		return fmt.Errorf("getting old folder path: %w", err)
 	}
 
+	// 3. Check for conflicts with siblings
 	var parentID *uuid.UUID
 	if folder.ParentID.Valid {
 		parentID = &folder.ParentID.UUID
 	}
-
-	// 2. Check for conflicts in parent
 	existing, err := s.GetFolderByNameInParent(ctx, userID, newName, parentID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		logger.Error("failed to check existing folder", "error", err)
@@ -546,9 +546,11 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 
 	targetFolder := folder
 	if existing.ID != uuid.Nil {
+		// Merge into existing folder if a folder with the new name exists
 		targetFolder = existing
 		logger.Info("merging folder into existing folder", "target_folder_id", existing.ID)
 	} else {
+		// Update folder name in DB
 		if err := s.UpdateFolderMetadata(ctx, folderID, userID, newName); err != nil {
 			logger.Error("failed to update folder metadata", "error", err)
 			return fmt.Errorf("updating folder name in DB: %w", err)
@@ -556,22 +558,12 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 		logger.Info("folder metadata updated")
 	}
 
-	// 3. Build new path
-	newPath := targetFolder.Name
-	if parentID != nil {
-		parentPath, err := s.GetFolderFullPath(ctx, *parentID, userID)
-		if err != nil {
-			if targetFolder.ID == folder.ID {
-				_ = s.UpdateFolderMetadata(ctx, folderID, userID, folder.Name)
-			}
-			logger.Error("failed to get parent folder path", "error", err)
-			return fmt.Errorf("building parent folder path: %w", err)
-		}
-		newPath = filepath.Join(parentPath, targetFolder.Name)
-	}
+	// 4. Build new path: same parent, just replace last segment
+	newPath := filepath.Join(filepath.Dir(oldPath), newName)
 
-	// 4. Move folder on disk
+	// 5. Move folder on disk
 	if err := s.local.MoveDirectory(ctx, userID, oldPath, newPath, overwriteFiles); err != nil {
+		// Rollback DB name if needed
 		if targetFolder.ID == folder.ID {
 			_ = s.UpdateFolderMetadata(ctx, folderID, userID, folder.Name)
 		}
@@ -580,7 +572,7 @@ func (s *FolderServiceImpl) RenameFolder(ctx context.Context, folderID uuid.UUID
 	}
 	logger.Info("folder moved on disk", "old_path", oldPath, "new_path", newPath)
 
-	// 5. Update child file paths
+	// 6. Update all child file paths
 	if err := s.updateAllChildFilePaths(ctx, userID, folderID, oldPath, newPath); err != nil {
 		logger.Error("failed to update child file paths", "error", err)
 		return fmt.Errorf("updating child file paths: %w", err)

@@ -60,11 +60,15 @@ func (s *LocalStorage) SaveFile(ctx context.Context, userID int32, path string, 
 		logger.Error("failed to create temp file", "temp_file", temp, "error", err)
 		return fmt.Errorf("creating temp file %s: %w", temp, err)
 	}
-	defer f.Close()
 
 	if _, err := io.Copy(f, content); err != nil {
 		logger.Error("failed to write to temp file", "temp_file", temp, "error", err)
 		return fmt.Errorf("writing to temp file %s: %w", temp, err)
+	}
+
+	if err := f.Close(); err != nil {
+		logger.Error("failed to close temp file", "temp_file", temp, "error", err)
+		return fmt.Errorf("closing temp file %s: %w", temp, err)
 	}
 
 	if err := os.Rename(temp, full); err != nil {
@@ -123,7 +127,6 @@ func (s *LocalStorage) MoveFile(ctx context.Context, userID int32, oldPath, newP
 		return fmt.Errorf("creating directories for %s: %w", newFull, err)
 	}
 
-	// attempt rename
 	if err := os.Rename(oldFull, newFull); err == nil {
 		logger.Info("file moved successfully via rename")
 		return nil
@@ -136,18 +139,33 @@ func (s *LocalStorage) MoveFile(ctx context.Context, userID int32, oldPath, newP
 		logger.Error("failed to open source file", "error", err)
 		return fmt.Errorf("opening source file %s: %w", oldFull, err)
 	}
-	defer src.Close()
+	defer func(src *os.File) {
+		err := src.Close()
+		if err != nil {
+
+		}
+	}(src)
 
 	dst, err := os.Create(newFull)
 	if err != nil {
 		logger.Error("failed to create destination file", "error", err)
 		return fmt.Errorf("creating destination file %s: %w", newFull, err)
 	}
-	defer dst.Close()
 
+	// copy content
 	if _, err := io.Copy(dst, src); err != nil {
+		err := dst.Close()
+		if err != nil {
+			return err
+		}
 		logger.Error("failed to copy file", "error", err)
 		return fmt.Errorf("copying from %s to %s: %w", oldFull, newFull, err)
+	}
+
+	// close dst before removing old file
+	if err := dst.Close(); err != nil {
+		logger.Error("failed to close destination file", "error", err)
+		return fmt.Errorf("closing destination file %s: %w", newFull, err)
 	}
 
 	if err := os.Remove(oldFull); err != nil {
@@ -243,14 +261,24 @@ func (s *LocalStorage) MoveDirectory(ctx context.Context, userID int32, oldPath,
 			logger.Error("failed to open source file", "src", path, "error", err)
 			return err
 		}
-		defer srcFile.Close()
+		defer func(srcFile *os.File) {
+			err := srcFile.Close()
+			if err != nil {
+
+			}
+		}(srcFile)
 
 		dstFile, err := os.Create(dest)
 		if err != nil {
 			logger.Error("failed to create destination file", "dest", dest, "error", err)
 			return err
 		}
-		defer dstFile.Close()
+		defer func(dstFile *os.File) {
+			err := dstFile.Close()
+			if err != nil {
+
+			}
+		}(dstFile)
 
 		if _, err := io.Copy(dstFile, srcFile); err != nil {
 			logger.Error("failed to copy file", "src", path, "dest", dest, "error", err)
@@ -359,7 +387,12 @@ func (s *LocalStorage) ZipMultipleFolders(ctx context.Context, userID int32, fol
 				logger.Error("failed to open file", "file", path, "error", err)
 				return err
 			}
-			defer file.Close()
+			defer func(file *os.File) {
+				err := file.Close()
+				if err != nil {
+
+				}
+			}(file)
 
 			entry, err := zipWriter.Create(zipPath)
 			if err != nil {
